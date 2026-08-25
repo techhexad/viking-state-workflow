@@ -14,15 +14,37 @@ import urllib.request
 import urllib.error
 import re
 
-OPENVIKING_HOST = os.environ.get("OPENVIKING_HOST", "http://127.0.0.1:8080")
+OPENVIKING_HOST = os.environ.get("OPENVIKING_HOST", "http://127.0.0.1:1933")
 LOCAL_VFS_BACKUP = os.path.expanduser("~/.openviking/local_vfs")
 MAX_INLINE_LINES = int(os.environ.get("VIKING_MAX_INLINE_LINES", "40"))
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
+def _get_api_key():
+    """Try to read user_key or api_key from ovcli config or environment."""
+    key = os.environ.get("OPENVIKING_API_KEY") or os.environ.get("OV_USER_KEY")
+    if key:
+        return key
+    conf_path = os.path.expanduser("~/.openviking/ovcli.conf")
+    if os.path.exists(conf_path):
+        try:
+            with open(conf_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return data.get("api_key") or data.get("user_key")
+        except Exception:
+            pass
+    return None
+
+
 def _http_request(endpoint: str, method="GET", data=None):
     url = f"{OPENVIKING_HOST.rstrip('/')}/{endpoint.lstrip('/')}"
     headers = {"Content-Type": "application/json"}
+    api_key = _get_api_key()
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+        headers["X-OpenViking-Account"] = "default"
+        headers["X-OpenViking-User"] = "admin"
+        
     body = json.dumps(data).encode("utf-8") if data else None
     
     req = urllib.request.Request(url, data=body, headers=headers, method=method)
@@ -30,6 +52,9 @@ def _http_request(endpoint: str, method="GET", data=None):
         with urllib.request.urlopen(req, timeout=10) as resp:
             content = resp.read().decode("utf-8")
             return json.loads(content) if content else {}
+    except urllib.error.HTTPError as e:
+        err_body = e.read().decode("utf-8") if e.fp else ""
+        return {"error": f"HTTP {e.code}: {e.reason} - {err_body}"}
     except urllib.error.URLError as e:
         return {"error": f"Connection failed to OpenViking at {url}: {e}"}
     except Exception as e:
@@ -47,25 +72,26 @@ def _write_local_backup(uri: str, content: str):
 
 
 def ping():
-    res = _http_request("/api/v1/health")
-    if "error" in res:
-        print(f"[STATUS] ⚠️ OpenViking server not reachable at {OPENVIKING_HOST}: {res['error']}")
+    res = _http_request("/health")
+    if "error" in res or not res.get("healthy"):
+        print(f"[STATUS] ⚠️ OpenViking server not reachable at {OPENVIKING_HOST}: {res.get('error')}")
         print(f"[STATUS] Local backup directory is active: {LOCAL_VFS_BACKUP}")
         return False
-    print(f"[STATUS] ✅ OpenViking server is online at {OPENVIKING_HOST}")
+    print(f"[STATUS] ✅ OpenViking server is online at {OPENVIKING_HOST} (Version: {res.get('version', 'unknown')})")
     return True
 
 
 def put_vfs(uri: str, content: str, tags=None):
     payload = {
         "uri": uri,
-        "content": content,
-        "tags": tags or []
+        "content": content
     }
-    res = _http_request("/api/v1/vfs/write", method="POST", data=payload)
+    # Always write to local backup as well
     local_path = _write_local_backup(uri, content)
+    
+    res = _http_request("/api/v1/content/write", method="POST", data=payload)
     if "error" in res:
-        print(f"[VFS] Saved to local fallback ({local_path}). Remote error: {res['error']}")
+        print(f"[VFS] Saved to local fallback ({local_path}). Server note: {res['error']}")
         return local_path
     print(f"[VFS] Successfully saved to {uri}")
     return uri
@@ -73,10 +99,11 @@ def put_vfs(uri: str, content: str, tags=None):
 
 def get_vfs(uri: str):
     payload = {"uri": uri}
-    res = _http_request("/api/v1/vfs/read", method="POST", data=payload)
+    res = _http_request("/api/v1/content/read", method="POST", data=payload)
     if "error" not in res and "content" in res:
         return res["content"]
     
+    # Check local fallback
     safe_rel = uri.replace("viking://", "").lstrip("/")
     target_path = os.path.join(LOCAL_VFS_BACKUP, safe_rel)
     if os.path.exists(target_path):
