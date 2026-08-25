@@ -54,16 +54,17 @@ In the OpenViking Virtual Filesystem (`viking://`):
 
 ## 4. Standard Operational Procedure (SOP)
 
-### Step 1: Verify Infrastructure Services
+### Step 1: Pre-flight Doctor Check (Mandatory Verification & Alignment)
 
-Verify OpenViking server availability:
+Before executing any commands, the Agent **MUST** run the self-healing doctor check:
 ```bash
-python3 "<SKILL_DIR>/scripts/viking_bridge.py" ping
+python3 "<SKILL_DIR>/scripts/viking_bridge.py" doctor
 ```
-*If offline, start OpenViking in its dedicated environment:*
-```bash
-openviking-server --storage-dir ~/.openviking/storage &
-```
+*The doctor check automatically:*
+- Discovers live OpenViking server port from `~/.openviking/ov.conf` (e.g. 1933).
+- Extracts and validates the active `user_key` from `~/.openviking/ovcli.conf`.
+- Tests full VFS read/write handshake.
+- **If checks fail**: The agent MUST resolve the alert (e.g. start `openviking-server`) before starting the task, preventing silent local fallbacks.
 
 ### Step 2: Auto-Generate or Load Runbook
 

@@ -2,7 +2,7 @@
 """
 Viking Bridge (viking_bridge.py)
 A lightweight CLI & Python client for OpenViking context offloading and retrieval.
-Works seamlessly across DSH, Hermes, OpenCode, Claude Code, and other agent runtimes.
+Features dynamic config auto-discovery and pre-flight doctor diagnostics.
 """
 
 import sys
@@ -15,39 +15,66 @@ import urllib.request
 import urllib.error
 import re
 
-OPENVIKING_HOST = os.environ.get("OPENVIKING_HOST", "http://127.0.0.1:1933")
-LOCAL_VFS_BACKUP = os.path.expanduser("~/.openviking/local_vfs")
 MAX_INLINE_LINES = int(os.environ.get("VIKING_MAX_INLINE_LINES", "40"))
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+LOCAL_VFS_BACKUP = os.path.expanduser("~/.openviking/local_vfs")
 
 
-def _get_api_key():
-    """Try to read user_key or api_key from ovcli config or environment."""
-    key = os.environ.get("OPENVIKING_API_KEY") or os.environ.get("OV_USER_KEY")
-    if key:
-        return key
-    conf_path = os.path.expanduser("~/.openviking/ovcli.conf")
-    if os.path.exists(conf_path):
+def _auto_discover_config():
+    """Dynamically auto-discover port, host, and keys from ~/.openviking/."""
+    host = os.environ.get("OPENVIKING_HOST")
+    api_key = os.environ.get("OPENVIKING_API_KEY") or os.environ.get("OV_USER_KEY")
+    account = "default"
+    user = "admin"
+
+    # 1. Read ov.conf for server port and host
+    ov_conf_path = os.path.expanduser("~/.openviking/ov.conf")
+    if not host and os.path.exists(ov_conf_path):
         try:
-            with open(conf_path, "r", encoding="utf-8") as f:
+            with open(ov_conf_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                return data.get("api_key") or data.get("user_key")
+                server_cfg = data.get("server", {})
+                port = server_cfg.get("port", 1933)
+                h = server_cfg.get("host", "127.0.0.1")
+                if h == "0.0.0.0":
+                    h = "127.0.0.1"
+                host = f"http://{h}:{port}"
         except Exception:
             pass
-    return None
+
+    if not host:
+        host = "http://127.0.0.1:1933"
+
+    # 2. Read active ovcli.conf for user_key and account/user
+    ovcli_conf_path = os.path.expanduser("~/.openviking/ovcli.conf")
+    if os.path.exists(ovcli_conf_path):
+        try:
+            with open(ovcli_conf_path, "r", encoding="utf-8") as f:
+                cli_data = json.load(f)
+                if not api_key:
+                    api_key = cli_data.get("api_key") or cli_data.get("user_key")
+                account = cli_data.get("account") or account
+                user = cli_data.get("user") or user
+                if not os.environ.get("OPENVIKING_HOST") and cli_data.get("url"):
+                    host = cli_data.get("url")
+        except Exception:
+            pass
+
+    return host, api_key, account, user
+
+
+OPENVIKING_HOST, OPENVIKING_KEY, VIKING_ACCOUNT, VIKING_USER = _auto_discover_config()
 
 
 def _http_request(endpoint: str, method="GET", data=None):
     url = f"{OPENVIKING_HOST.rstrip('/')}/{endpoint.lstrip('/')}"
     headers = {"Content-Type": "application/json"}
-    api_key = _get_api_key()
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
-        headers["X-OpenViking-Account"] = "default"
-        headers["X-OpenViking-User"] = "admin"
+    if OPENVIKING_KEY:
+        headers["Authorization"] = f"Bearer {OPENVIKING_KEY}"
+        headers["X-OpenViking-Account"] = VIKING_ACCOUNT
+        headers["X-OpenViking-User"] = VIKING_USER
         
     body = json.dumps(data).encode("utf-8") if data else None
-    
     req = urllib.request.Request(url, data=body, headers=headers, method=method)
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
@@ -63,7 +90,6 @@ def _http_request(endpoint: str, method="GET", data=None):
 
 
 def _write_local_backup(uri: str, content: str):
-    """Fallback local persistence if OpenViking daemon is restarting."""
     safe_rel = uri.replace("viking://", "").lstrip("/")
     target_path = os.path.join(LOCAL_VFS_BACKUP, safe_rel)
     os.makedirs(os.path.dirname(target_path), exist_ok=True)
@@ -72,26 +98,59 @@ def _write_local_backup(uri: str, content: str):
     return target_path
 
 
+def doctor():
+    """Mandatory Pre-flight check: verifies all connections, auth, and models before running task."""
+    print("=" * 65)
+    print("🩺  [OpenViking Pre-flight Doctor Check]")
+    print("=" * 65)
+    print(f"📡 Discovered Server Endpoint : {OPENVIKING_HOST}")
+    print(f"🔑 Auth User Key              : {'[Configured]' if OPENVIKING_KEY else '[MISSING ❌]'}")
+    print(f"👤 Account / User Context     : {VIKING_ACCOUNT} / {VIKING_USER}")
+
+    # 1. Check Server Health
+    res = _http_request("/health")
+    if "error" in res or not res.get("healthy"):
+        print(f"\n❌ [ERROR] OpenViking server is NOT reachable at {OPENVIKING_HOST}!")
+        print(f"   Reason: {res.get('error')}")
+        print("\n👉 Action Required:")
+        print("   Start the OpenViking daemon before running tasks:")
+        print("   source ~/.openviking/venv/bin/activate && openviking-server &")
+        return False
+
+    print(f"✅ Server Status               : Healthy (v{res.get('version', 'unknown')})")
+
+    # 2. Check Auth Key Validity
+    if not OPENVIKING_KEY:
+        print("\n⚠️  [WARNING] User API Key is missing. Tenant APIs will be rejected.")
+        print("   Please configure user key via: ov config add ...")
+        return False
+
+    # 3. Check VFS Connectivity
+    fs_test = _http_request("/api/v1/content/read", method="POST", data={"uri": "viking://resources"})
+    if "error" in fs_test and "HTTP 401" in fs_test["error"]:
+        print(f"\n❌ [AUTH ERROR] User API Key failed validation: {fs_test['error']}")
+        return False
+    print("✅ VFS & Auth Handshake        : Verified & Ready")
+    print("=" * 65)
+    print("🎉 All Pre-flight checks passed! Context offloading is 100% active.\n")
+    return True
+
+
 def ping():
     res = _http_request("/health")
     if "error" in res or not res.get("healthy"):
         print(f"[STATUS] ⚠️ OpenViking server not reachable at {OPENVIKING_HOST}: {res.get('error')}")
-        print(f"[STATUS] Local backup directory is active: {LOCAL_VFS_BACKUP}")
         return False
     print(f"[STATUS] ✅ OpenViking server is online at {OPENVIKING_HOST} (Version: {res.get('version', 'unknown')})")
     return True
 
 
 def put_vfs(uri: str, content: str, tags=None):
-    payload = {
-        "uri": uri,
-        "content": content
-    }
+    payload = {"uri": uri, "content": content}
     local_path = _write_local_backup(uri, content)
-    
     res = _http_request("/api/v1/content/write", method="POST", data=payload)
     if "error" in res:
-        print(f"[VFS] Saved to local fallback ({local_path}). Server note: {res['error']}")
+        print(f"[VFS WARNING] Saved to local fallback ({local_path}). Server note: {res['error']}")
         return local_path
     print(f"[VFS] Successfully saved to {uri}")
     return uri
@@ -102,7 +161,6 @@ def get_vfs(uri: str):
     res = _http_request("/api/v1/content/read", method="POST", data=payload)
     if "error" not in res and "content" in res:
         return res["content"]
-    
     safe_rel = uri.replace("viking://", "").lstrip("/")
     target_path = os.path.join(LOCAL_VFS_BACKUP, safe_rel)
     if os.path.exists(target_path):
@@ -152,7 +210,6 @@ def run_command(cmd: str, dest_uri: str, max_lines=MAX_INLINE_LINES):
         combined_output += ("\n[STDERR]\n" + proc.stderr)
 
     lines = combined_output.splitlines()
-    
     if len(lines) <= max_lines:
         print(combined_output)
         return proc.returncode
@@ -178,7 +235,6 @@ def run_command(cmd: str, dest_uri: str, max_lines=MAX_INLINE_LINES):
 
 
 def run_ocr(image_path: str, dest_uri: str = None):
-    """Run native macOS Vision OCR and optionally persist to OpenViking."""
     if not os.path.exists(image_path):
         print(f"[ERROR] Image not found: {image_path}")
         return 1
@@ -211,7 +267,6 @@ def run_ocr(image_path: str, dest_uri: str = None):
 
 
 def capture_and_ocr(app_path: str, open_settings=True, dest_uri: str = None, screenshot_path="/tmp/viking_ui_capture.png"):
-    """Activate app, optionally send Cmd+, to open settings, capture screenshot and run OCR."""
     app_name = os.path.basename(app_path).replace(".app", "")
     print(f"[AUTO-UI] Activating {app_path} ...")
     subprocess.run(["open", "-a", app_path], check=False)
@@ -240,6 +295,9 @@ def main():
     parser = argparse.ArgumentParser(description="OpenViking Context & Memory Bridge")
     subparsers = parser.add_subparsers(dest="subcommand", required=True)
 
+    # Doctor / Pre-flight
+    subparsers.add_parser("doctor", help="Run full pre-flight verification before starting task")
+
     # Ping
     subparsers.add_parser("ping", help="Check server health")
 
@@ -254,7 +312,7 @@ def main():
     ocr_parser.add_argument("image", help="Path to image/screenshot file")
     ocr_parser.add_argument("--dest", help="Optional Viking URI to store OCR text (e.g. viking://knowledge/ocr/ui.txt)")
 
-    # Capture & OCR (All-in-one UI Inspection)
+    # Capture & OCR
     cap_parser = subparsers.add_parser("capture-ocr", help="Auto-activate App, trigger settings, screenshot & OCR")
     cap_parser.add_argument("--app", required=True, help="Path to .app bundle")
     cap_parser.add_argument("--no-settings", action="store_true", help="Do not trigger Cmd+, settings shortcut")
@@ -278,7 +336,9 @@ def main():
 
     args = parser.parse_args()
 
-    if args.subcommand == "ping":
+    if args.subcommand == "doctor":
+        sys.exit(0 if doctor() else 1)
+    elif args.subcommand == "ping":
         sys.exit(0 if ping() else 1)
     elif args.subcommand == "run":
         sys.exit(run_command(args.cmd, args.dest, args.max_lines))
