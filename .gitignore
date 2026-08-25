@@ -1,0 +1,14 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Temporary and local state
+.viking_state/
+*.tmp
+*.bak
+*.log
+.DS_Store
+
+# Local session handovers (transient)
+session_distilled_state.md

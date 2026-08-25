@@ -1,0 +1,20 @@
+{
+  "server": {
+    "host": "127.0.0.1",
+    "port": 8080
+  },
+  "storage": {
+    "backend": "local",
+    "path": "~/.openviking/storage"
+  },
+  "embedding": {
+    "provider": "ollama",
+    "model": "bge-m3",
+    "api_base": "http://127.0.0.1:11434"
+  },
+  "tiered_retrieval": {
+    "l0_max_tokens": 200,
+    "l1_max_tokens": 800,
+    "enable_recursive_tree": true
+  }
+}

@@ -1,0 +1,45 @@
+name: "LongHorizon_Task_Pipeline"
+version: "1.0.0"
+initial_state: "extract_and_prepare"
+current_state: "extract_and_prepare"
+
+states:
+  extract_and_prepare:
+    description: "Unpack target assets, extract architectures, and verify signatures/structures."
+    expected_artifacts:
+      - "extracted"
+    gates:
+      - "Ensure target binaries exist and are readable"
+    transition:
+      on_success: "deep_disasm_and_scan"
+      on_failure: "extract_and_prepare"
+
+  deep_disasm_and_scan:
+    description: "Perform heavy disassembly, symbol indexing, and keypath scanning (Offload output to OpenViking)."
+    gates:
+      - "Full disassembly stored in viking://knowledge/<project>/disasm/"
+      - "Target function addresses identified"
+    transition:
+      on_success: "patch_and_implementation"
+      on_failure: "deep_disasm_and_scan"
+
+  patch_and_implementation:
+    description: "Write targeted patches or functional changes using specific byte/code snippets."
+    gates:
+      - "Patch script generated"
+      - "Ad-hoc / dev code-signing completed"
+    transition:
+      on_success: "verification_and_testing"
+      on_failure: "patch_and_implementation"
+
+  verification_and_testing:
+    description: "Run automated tests, launch verification, and check logs for unexpected crashes or errors."
+    gates:
+      - "Application/service runs without crash"
+      - "Target feature operates in verified state"
+    transition:
+      on_success: "completed"
+      on_crash: "patch_and_implementation"
+
+  completed:
+    description: "Task successfully executed, verified, and closed."
