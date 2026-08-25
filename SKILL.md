@@ -72,22 +72,24 @@ python3 "<SKILL_DIR>/scripts/viking_bridge.py" doctor
 - Tests full VFS read/write handshake.
 - **If checks fail**: The agent MUST resolve the alert (e.g. start `openviking-server`) before starting the task, preventing silent local fallbacks.
 
-### Step 2: Auto-Initialize Workspace & Runbook
+### Step 2: Auto-Synthesize or Load Workspace Context (`AGENTS.md` & `runbook.yaml`)
 
-For any new or existing project, the Agent or user can one-click initialize the tailored environment:
-```bash
-python3 "<SKILL_DIR>/scripts/viking_bridge.py" init [--project "<name>"]
-```
-*The init command automatically:*
-1. Inspects the current directory for target assets (`.app`, `.dmg`, binaries, etc.).
-2. Generates a lean, project-tailored `AGENTS.md` linked to `SKILL.md`.
-3. Creates a customized 4-stage StateM `runbook.yaml` (if missing).
-4. Executes the pre-flight `doctor` check.
-
-To inspect or verify state:
-```bash
-python3 "<SKILL_DIR>/scripts/statem_driver.py" --status
-```
+1. Check if `runbook.yaml` / `AGENTS.md` already exists in the current workspace:
+   ```bash
+   python3 "<SKILL_DIR>/scripts/statem_driver.py" --status
+   ```
+2. **If starting a new project (or updating an existing one)**:
+   The Agent **synthesizes the user's prompt and repository context** (identifying whether it is Reverse Engineering, Code Refactoring, Deep Debugging, Data Pipeline, or a General Long Task), and runs:
+   ```bash
+   python3 "<SKILL_DIR>/scripts/workspace_init.py" \
+     --project "<project_name>" \
+     --type "reverse_engineering|code_refactor|deep_debugging|general_long_task" \
+     --prompt "<user_prompt_goal>" \
+     --dir "."
+   ```
+   *This automatically creates:*
+   - A tailored, non-redundant `AGENTS.md` with customized VFS paths and task-specific quick commands.
+   - A 5-phase `runbook.yaml` with explicit gate conditions matching the task type.
 
 ### Step 3: Sandboxed Execution with VFS Offloading
 
@@ -160,12 +162,15 @@ The newly initialized session loads `session_distilled_state.md` and continues f
 
 | Command | Purpose |
 | :--- | :--- |
+| `workspace_init.py --project <p> --type <t>` | Auto-synthesize tailored `AGENTS.md` and `runbook.yaml` for any task type |
+| `viking_bridge.py doctor` | Pre-flight check & dynamic server/auth discovery |
 | `viking_bridge.py ping` | Health-check local OpenViking server |
 | `viking_bridge.py run --dest <uri> --cmd "<cmd>"` | Run command & redirect heavy output to VFS |
+| `viking_bridge.py capture-ocr --app <app>` | Auto-activate app, open settings, screenshot & zero-VRAM OCR |
 | `viking_bridge.py ocr <image> [--dest <uri>]` | Extract text from screenshot via native macOS Vision |
 | `viking_bridge.py put <file> <uri>` | Push file into OpenViking VFS |
 | `viking_bridge.py grep --uri <uri> --pattern <str>` | Extract specific lines & context from VFS node |
-| `viking_bridge.py tree [uri]` | Browse VFS knowledge hierarchy |
-| `statem_driver.py --runbook <file> --status` | Display current state machine phase & gates |
-| `statem_driver.py --runbook <file> --advance` | Advance to the next verified state |
+| `statem_driver.py --status` | Display current state machine phase & gates |
+| `statem_driver.py --advance` | Advance to the next verified state |
 | `session_compactor.py --project <name>` | Distill session into persistent memory snapshot |
+
