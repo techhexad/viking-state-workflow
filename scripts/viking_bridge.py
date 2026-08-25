@@ -7,6 +7,7 @@ Works seamlessly across DSH, Hermes, OpenCode, Claude Code, and other agent runt
 
 import sys
 import os
+import time
 import argparse
 import subprocess
 import json
@@ -86,7 +87,6 @@ def put_vfs(uri: str, content: str, tags=None):
         "uri": uri,
         "content": content
     }
-    # Always write to local backup as well
     local_path = _write_local_backup(uri, content)
     
     res = _http_request("/api/v1/content/write", method="POST", data=payload)
@@ -103,7 +103,6 @@ def get_vfs(uri: str):
     if "error" not in res and "content" in res:
         return res["content"]
     
-    # Check local fallback
     safe_rel = uri.replace("viking://", "").lstrip("/")
     target_path = os.path.join(LOCAL_VFS_BACKUP, safe_rel)
     if os.path.exists(target_path):
@@ -211,6 +210,32 @@ def run_ocr(image_path: str, dest_uri: str = None):
     return 0
 
 
+def capture_and_ocr(app_path: str, open_settings=True, dest_uri: str = None, screenshot_path="/tmp/viking_ui_capture.png"):
+    """Activate app, optionally send Cmd+, to open settings, capture screenshot and run OCR."""
+    app_name = os.path.basename(app_path).replace(".app", "")
+    print(f"[AUTO-UI] Activating {app_path} ...")
+    subprocess.run(["open", "-a", app_path], check=False)
+    time.sleep(1.2)
+
+    if open_settings:
+        print(f"[AUTO-UI] Opening Settings (Cmd+,) via AppleScript ...")
+        as_script = f'''
+        tell application "{app_name}" to activate
+        delay 0.5
+        tell application "System Events"
+            keystroke "," using command down
+        end tell
+        delay 1.0
+        '''
+        subprocess.run(["osascript", "-e", as_script], check=False)
+
+    print(f"[AUTO-UI] Capturing screen to {screenshot_path} ...")
+    subprocess.run(["screencapture", "-x", screenshot_path], check=False)
+    time.sleep(0.5)
+
+    return run_ocr(screenshot_path, dest_uri)
+
+
 def main():
     parser = argparse.ArgumentParser(description="OpenViking Context & Memory Bridge")
     subparsers = parser.add_subparsers(dest="subcommand", required=True)
@@ -228,6 +253,13 @@ def main():
     ocr_parser = subparsers.add_parser("ocr", help="Extract text from screenshot using native macOS Vision")
     ocr_parser.add_argument("image", help="Path to image/screenshot file")
     ocr_parser.add_argument("--dest", help="Optional Viking URI to store OCR text (e.g. viking://knowledge/ocr/ui.txt)")
+
+    # Capture & OCR (All-in-one UI Inspection)
+    cap_parser = subparsers.add_parser("capture-ocr", help="Auto-activate App, trigger settings, screenshot & OCR")
+    cap_parser.add_argument("--app", required=True, help="Path to .app bundle")
+    cap_parser.add_argument("--no-settings", action="store_true", help="Do not trigger Cmd+, settings shortcut")
+    cap_parser.add_argument("--dest", help="Optional Viking URI to store OCR text")
+    cap_parser.add_argument("--output-png", default="/tmp/viking_ui_capture.png", help="Temporary screenshot path")
 
     # Put
     put_parser = subparsers.add_parser("put", help="Upload a file or string to VFS")
@@ -252,6 +284,8 @@ def main():
         sys.exit(run_command(args.cmd, args.dest, args.max_lines))
     elif args.subcommand == "ocr":
         sys.exit(run_ocr(args.image, args.dest))
+    elif args.subcommand == "capture-ocr":
+        sys.exit(capture_and_ocr(args.app, not args.no_settings, args.dest, args.output_png))
     elif args.subcommand == "put":
         if os.path.exists(args.file):
             with open(args.file, "r", encoding="utf-8", errors="replace") as f:

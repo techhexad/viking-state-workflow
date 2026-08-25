@@ -94,9 +94,17 @@ python3 "<SKILL_DIR>/scripts/viking_bridge.py" grep \
   --context 15
 ```
 
-### Step 5: UI Verification via Native OCR (No Vision Model Required)
+### Step 5: UI Verification via Native OCR (Auto-Activate & Zero-VRAM)
 
-When verifying application state from screenshots or GUI windows:
+When verifying application state from screenshots or GUI windows, use the all-in-one automation command:
+```bash
+python3 "<SKILL_DIR>/scripts/viking_bridge.py" capture-ocr \
+  --app "<path_to_app>" \
+  --dest "viking://knowledge/<project>/ocr/ui_status.txt"
+```
+*(This automatically activates the App, sends Cmd+, to open Settings via AppleScript, takes a screenshot, and runs Vision OCR without requiring human interaction).*
+
+Or run OCR directly on an existing screenshot:
 ```bash
 python3 "<SKILL_DIR>/scripts/viking_bridge.py" ocr \
   screenshot.png \
