@@ -2,7 +2,10 @@
 """
 Viking Bridge (viking_bridge.py)
 A lightweight CLI & Python client for OpenViking context offloading and retrieval.
-Features dynamic config auto-discovery, pre-flight doctor diagnostics, and auto-process lifecycle management.
+Features:
+- Dynamic config auto-discovery & pre-flight doctor diagnostics
+- Fault-tolerant UI capture with crash detection, window elevation, and auto-retry
+- Zero-VRAM macOS Vision OCR & VFS integration
 """
 
 import sys
@@ -11,6 +14,7 @@ import time
 import argparse
 import subprocess
 import json
+import glob
 import urllib.request
 import urllib.error
 import re
@@ -232,22 +236,22 @@ def run_command(cmd: str, dest_uri: str, max_lines=MAX_INLINE_LINES):
 def run_ocr(image_path: str, dest_uri: str = None):
     if not os.path.exists(image_path):
         print(f"[ERROR] Image not found: {image_path}")
-        return 1
+        return 1, ""
 
     swift_ocr_path = os.path.join(SCRIPT_DIR, "mac_ocr.swift")
     if not os.path.exists(swift_ocr_path):
         print(f"[ERROR] OCR script not found at {swift_ocr_path}")
-        return 1
+        return 1, ""
 
     proc = subprocess.run([swift_ocr_path, image_path], capture_output=True, text=True)
     if proc.returncode != 0:
         print(f"[ERROR] OCR failed: {proc.stderr}")
-        return proc.returncode
+        return proc.returncode, ""
 
     ocr_text = proc.stdout.strip()
     if not ocr_text:
-        print(f"[OCR] No text recognized in {image_path}.")
-        return 0
+        print(f"[OCR WARNING] No text recognized in {image_path}.")
+        return 0, ""
 
     print(f"\n🔍 [macOS Vision OCR Result for {os.path.basename(image_path)}]:")
     print("-" * 50)
@@ -258,50 +262,102 @@ def run_ocr(image_path: str, dest_uri: str = None):
         put_vfs(dest_uri, ocr_text, tags=["ocr_result", "ui_inspection"])
         print(f"📍 OCR result also saved to {dest_uri}")
 
-    return 0
+    return 0, ocr_text
 
 
-def capture_and_ocr(app_path: str, open_settings=True, dest_uri: str = None, screenshot_path="/tmp/viking_ui_capture.png", auto_kill=True):
-    """Auto-manage lifecycle: clean stale instance -> activate -> trigger settings -> screenshot & OCR -> auto teardown."""
+def _check_recent_crash(app_name: str):
+    """Scan ~/Library/Logs/DiagnosticReports for fresh crash logs matching app_name."""
+    diag_dir = os.path.expanduser("~/Library/Logs/DiagnosticReports")
+    if not os.path.exists(diag_dir):
+        return None
+
+    # Find crash files created in the last 60 seconds
+    now = time.time()
+    matches = glob.glob(os.path.join(diag_dir, f"*{app_name}*.ips")) + glob.glob(os.path.join(diag_dir, f"*{app_name}*.crash"))
+    recent = []
+    for f in matches:
+        if now - os.path.getmtime(f) < 60:
+            recent.append(f)
+            
+    if not recent:
+        return None
+        
+    latest_crash = max(recent, key=os.path.getmtime)
+    try:
+        with open(latest_crash, "r", encoding="utf-8", errors="replace") as cf:
+            snippet = cf.read(2000)
+            return f"Crash log detected: {os.path.basename(latest_crash)}\n{snippet[:500]}..."
+    except Exception:
+        return f"Crash log detected: {os.path.basename(latest_crash)}"
+
+
+def capture_and_ocr(app_path: str, open_settings=True, dest_uri: str = None, screenshot_path="/tmp/viking_ui_capture.png", auto_kill=True, max_retries=2):
+    """
+    Robust UI Capture & OCR with:
+    1. Crash & process liveness detection
+    2. Window elevation (anti-obscuration)
+    3. Multi-attempt retries with fallback triggers
+    4. Auto teardown and diagnostic logging
+    """
     app_name = os.path.basename(app_path).replace(".app", "")
     
-    # 1. Pre-clean: Kill any stale running instance
-    print(f"[AUTO-UI] Pre-cleaning existing '{app_name}' instances...")
-    subprocess.run(["pkill", "-9", "-f", app_name], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    time.sleep(0.5)
+    for attempt in range(1, max_retries + 1):
+        print(f"\n[AUTO-UI Attempt {attempt}/{max_retries}] Pre-cleaning existing '{app_name}' instances...")
+        subprocess.run(["pkill", "-9", "-f", app_name], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        time.sleep(0.5)
 
-    # 2. Launch fresh instance
-    print(f"[AUTO-UI] Launching fresh instance of {app_path} ...")
-    subprocess.run(["open", "-a", app_path], check=False)
-    time.sleep(1.5)
+        print(f"[AUTO-UI] Launching fresh instance of {app_path} ...")
+        subprocess.run(["open", "-a", app_path], check=False)
+        time.sleep(1.5)
 
-    # 3. Trigger settings
-    if open_settings:
-        print(f"[AUTO-UI] Opening Settings (Cmd+,) via AppleScript ...")
+        # Check if process is still alive (Crash detection)
+        pgrep = subprocess.run(["pgrep", "-f", app_name], capture_output=True, text=True)
+        if not pgrep.stdout.strip():
+            crash_info = _check_recent_crash(app_name)
+            print(f"\n💥 [CRITICAL CRASH DETECTED] App '{app_name}' exited immediately after launch!")
+            if crash_info:
+                print(f"📋 Diagnostic trace:\n{crash_info}")
+            if dest_uri:
+                put_vfs(f"viking://knowledge/{app_name}/logs/crash_report.txt", crash_info or "Immediate crash on launch")
+            return 2  # Special returncode 2 = CRASH
+
+        # Focus & bring window to front (prevent obscuration)
+        print(f"[AUTO-UI] Elevating window to front and sending Settings shortcut (Cmd+,)...")
         as_script = f'''
-        tell application "{app_name}" to activate
-        delay 0.5
+        tell application "{app_name}"
+            activate
+            reopen
+        end tell
         tell application "System Events"
+            set frontmost of process "{app_name}" to true
+            delay 0.5
             keystroke "," using command down
         end tell
-        delay 1.0
+        delay 1.2
         '''
-        subprocess.run(["osascript", "-e", as_script], check=False)
+        subprocess.run(["osascript", "-e", as_script], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    # 4. Capture screenshot
-    print(f"[AUTO-UI] Capturing screen to {screenshot_path} ...")
-    subprocess.run(["screencapture", "-x", screenshot_path], check=False)
-    time.sleep(0.5)
+        print(f"[AUTO-UI] Capturing screen to {screenshot_path} ...")
+        subprocess.run(["screencapture", "-x", screenshot_path], check=False)
+        time.sleep(0.5)
 
-    # 5. Run OCR
-    ocr_res = run_ocr(screenshot_path, dest_uri)
+        code, text = run_ocr(screenshot_path, dest_uri)
+        
+        # Check if meaningful UI text was recognized
+        if text and len(text.splitlines()) >= 2:
+            print(f"✅ [AUTO-UI] Successfully captured and verified UI text ({len(text.splitlines())} lines).")
+            if auto_kill:
+                print(f"[AUTO-UI] Auto-terminating '{app_name}' to release file locks...")
+                subprocess.run(["pkill", "-9", "-f", app_name], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return 0
 
-    # 6. Auto-Teardown if requested (prevent locking binary file)
+        print(f"⚠️ [AUTO-UI] OCR text was empty or incomplete. Retrying...")
+        time.sleep(1.0)
+
+    print(f"\n❌ [AUTO-UI ERROR] Failed to capture valid UI text after {max_retries} attempts.")
     if auto_kill:
-        print(f"[AUTO-UI] Auto-terminating '{app_name}' process to release file locks...")
         subprocess.run(["pkill", "-9", "-f", app_name], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-    return ocr_res
+    return 1
 
 
 def main():
@@ -326,12 +382,13 @@ def main():
     ocr_parser.add_argument("--dest", help="Optional Viking URI to store OCR text (e.g. viking://knowledge/ocr/ui.txt)")
 
     # Capture & OCR
-    cap_parser = subparsers.add_parser("capture-ocr", help="Auto-activate App, trigger settings, screenshot & OCR")
+    cap_parser = subparsers.add_parser("capture-ocr", help="Auto-activate App, trigger settings, screenshot & OCR with retry & crash-guard")
     cap_parser.add_argument("--app", required=True, help="Path to .app bundle")
     cap_parser.add_argument("--no-settings", action="store_true", help="Do not trigger Cmd+, settings shortcut")
     cap_parser.add_argument("--dest", help="Optional Viking URI to store OCR text")
     cap_parser.add_argument("--output-png", default="/tmp/viking_ui_capture.png", help="Temporary screenshot path")
     cap_parser.add_argument("--keep-running", action="store_true", help="Do not auto-terminate app after OCR")
+    cap_parser.add_argument("--retries", type=int, default=2, help="Number of capture retries")
 
     # Put
     put_parser = subparsers.add_parser("put", help="Upload a file or string to VFS")
@@ -357,9 +414,10 @@ def main():
     elif args.subcommand == "run":
         sys.exit(run_command(args.cmd, args.dest, args.max_lines))
     elif args.subcommand == "ocr":
-        sys.exit(run_ocr(args.image, args.dest))
+        code, _ = run_ocr(args.image, args.dest)
+        sys.exit(code)
     elif args.subcommand == "capture-ocr":
-        sys.exit(capture_and_ocr(args.app, not args.no_settings, args.dest, args.output_png, not args.keep_running))
+        sys.exit(capture_and_ocr(args.app, not args.no_settings, args.dest, args.output_png, not args.keep_running, args.retries))
     elif args.subcommand == "put":
         if os.path.exists(args.file):
             with open(args.file, "r", encoding="utf-8", errors="replace") as f:
