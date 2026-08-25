@@ -5,12 +5,14 @@ A lightweight CLI & Python client for OpenViking context offloading and retrieva
 Features:
 - Dynamic config auto-discovery & pre-flight doctor diagnostics
 - Fault-tolerant UI capture with crash detection, window elevation, and auto-retry
+- Human-in-the-loop verification with configurable timeout and auto-fallback
 - Zero-VRAM macOS Vision OCR & VFS integration
 """
 
 import sys
 import os
 import time
+import select
 import argparse
 import subprocess
 import json
@@ -22,6 +24,7 @@ import re
 MAX_INLINE_LINES = int(os.environ.get("VIKING_MAX_INLINE_LINES", "40"))
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 LOCAL_VFS_BACKUP = os.path.expanduser("~/.openviking/local_vfs")
+DEFAULT_TIMEOUT_SEC = int(os.environ.get("VIKING_USER_TIMEOUT", "600"))  # 10 minutes default
 
 
 def _auto_discover_config():
@@ -271,7 +274,6 @@ def _check_recent_crash(app_name: str):
     if not os.path.exists(diag_dir):
         return None
 
-    # Find crash files created in the last 60 seconds
     now = time.time()
     matches = glob.glob(os.path.join(diag_dir, f"*{app_name}*.ips")) + glob.glob(os.path.join(diag_dir, f"*{app_name}*.crash"))
     recent = []
@@ -291,15 +293,38 @@ def _check_recent_crash(app_name: str):
         return f"Crash log detected: {os.path.basename(latest_crash)}"
 
 
-def capture_and_ocr(app_path: str, open_settings=True, dest_uri: str = None, screenshot_path="/tmp/viking_ui_capture.png", auto_kill=True, max_retries=2):
+def prompt_user_confirmation(question: str, timeout_sec: int = DEFAULT_TIMEOUT_SEC) -> str:
+    """Ask user for input with non-blocking timeout fallback."""
+    if not sys.stdin.isatty():
+        print(f"\n[NON-INTERACTIVE] Non-TTY environment detected. Proceeding automatically.")
+        return ""
+
+    print("\n" + "❓" * 30)
+    print(f"🤔 {question}")
+    print(f"⏳ 等待用户输入 (超时时间: {timeout_sec} 秒 / {timeout_sec // 60} 分钟，超时后将自动继续)...")
+    print("👉 输入 'y' 确认通过，输入 'n' 判定失败，或直接输入修正说明 (直接回车或等待则自动继续): ", end="", flush=True)
+
+    rlist, _, _ = select.select([sys.stdin], [], [], timeout_sec)
+    if rlist:
+        ans = sys.stdin.readline().strip()
+        print(f"👤 用户输入: '{ans}'")
+        return ans
+    else:
+        print(f"\n⏰ [超时提醒] 用户在 {timeout_sec} 秒内未应答，自动进入下一步自愈处理流程...")
+        return ""
+
+
+def capture_and_ocr(app_path: str, open_settings=True, dest_uri: str = None, screenshot_path="/tmp/viking_ui_capture.png", auto_kill=True, max_retries=2, timeout_sec=DEFAULT_TIMEOUT_SEC, ask_user=False):
     """
     Robust UI Capture & OCR with:
     1. Crash & process liveness detection
     2. Window elevation (anti-obscuration)
     3. Multi-attempt retries with fallback triggers
-    4. Auto teardown and diagnostic logging
+    4. Human-in-the-loop confirmation with configurable timeout
+    5. Auto teardown and diagnostic logging
     """
     app_name = os.path.basename(app_path).replace(".app", "")
+    captured_text = ""
     
     for attempt in range(1, max_retries + 1):
         print(f"\n[AUTO-UI Attempt {attempt}/{max_retries}] Pre-cleaning existing '{app_name}' instances...")
@@ -310,7 +335,7 @@ def capture_and_ocr(app_path: str, open_settings=True, dest_uri: str = None, scr
         subprocess.run(["open", "-a", app_path], check=False)
         time.sleep(1.5)
 
-        # Check if process is still alive (Crash detection)
+        # 1. Check process liveness (Crash detection)
         pgrep = subprocess.run(["pgrep", "-f", app_name], capture_output=True, text=True)
         if not pgrep.stdout.strip():
             crash_info = _check_recent_crash(app_name)
@@ -321,7 +346,7 @@ def capture_and_ocr(app_path: str, open_settings=True, dest_uri: str = None, scr
                 put_vfs(f"viking://knowledge/{app_name}/logs/crash_report.txt", crash_info or "Immediate crash on launch")
             return 2  # Special returncode 2 = CRASH
 
-        # Focus & bring window to front (prevent obscuration)
+        # 2. Focus & elevate window
         print(f"[AUTO-UI] Elevating window to front and sending Settings shortcut (Cmd+,)...")
         as_script = f'''
         tell application "{app_name}"
@@ -337,27 +362,44 @@ def capture_and_ocr(app_path: str, open_settings=True, dest_uri: str = None, scr
         '''
         subprocess.run(["osascript", "-e", as_script], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
+        # 3. Capture screenshot
         print(f"[AUTO-UI] Capturing screen to {screenshot_path} ...")
         subprocess.run(["screencapture", "-x", screenshot_path], check=False)
         time.sleep(0.5)
 
         code, text = run_ocr(screenshot_path, dest_uri)
+        captured_text = text
         
-        # Check if meaningful UI text was recognized
         if text and len(text.splitlines()) >= 2:
             print(f"✅ [AUTO-UI] Successfully captured and verified UI text ({len(text.splitlines())} lines).")
-            if auto_kill:
-                print(f"[AUTO-UI] Auto-terminating '{app_name}' to release file locks...")
-                subprocess.run(["pkill", "-9", "-f", app_name], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            return 0
+            break
 
         print(f"⚠️ [AUTO-UI] OCR text was empty or incomplete. Retrying...")
         time.sleep(1.0)
 
-    print(f"\n❌ [AUTO-UI ERROR] Failed to capture valid UI text after {max_retries} attempts.")
+    # 4. Human-In-The-Loop Question (if requested or uncertain)
+    if ask_user:
+        user_reply = prompt_user_confirmation(
+            f"请人工核对屏幕上的 '{app_name}' 界面状态。当前 OCR 提取结果为:\n{captured_text[:300]}...",
+            timeout_sec=timeout_sec
+        )
+        if user_reply.lower() in ["y", "yes", "true", "1"]:
+            print("✅ 人工确认：界面验证通过！")
+            if auto_kill:
+                subprocess.run(["pkill", "-9", "-f", app_name], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return 0
+        elif user_reply.lower() in ["n", "no", "false", "0"]:
+            print("❌ 人工判定：界面验证未通过，触发自愈回退！")
+            if auto_kill:
+                subprocess.run(["pkill", "-9", "-f", app_name], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return 1
+
+    # 5. Teardown
     if auto_kill:
+        print(f"[AUTO-UI] Auto-terminating '{app_name}' to release file locks...")
         subprocess.run(["pkill", "-9", "-f", app_name], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    return 1
+
+    return 0 if (captured_text and len(captured_text.splitlines()) >= 2) else 1
 
 
 def main():
@@ -389,6 +431,8 @@ def main():
     cap_parser.add_argument("--output-png", default="/tmp/viking_ui_capture.png", help="Temporary screenshot path")
     cap_parser.add_argument("--keep-running", action="store_true", help="Do not auto-terminate app after OCR")
     cap_parser.add_argument("--retries", type=int, default=2, help="Number of capture retries")
+    cap_parser.add_argument("--ask-user", action="store_true", help="Prompt user for manual confirmation before proceeding")
+    cap_parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT_SEC, help="Human confirmation timeout in seconds (default 600s)")
 
     # Put
     put_parser = subparsers.add_parser("put", help="Upload a file or string to VFS")
@@ -417,7 +461,16 @@ def main():
         code, _ = run_ocr(args.image, args.dest)
         sys.exit(code)
     elif args.subcommand == "capture-ocr":
-        sys.exit(capture_and_ocr(args.app, not args.no_settings, args.dest, args.output_png, not args.keep_running, args.retries))
+        sys.exit(capture_and_ocr(
+            app_path=args.app,
+            open_settings=not args.no_settings,
+            dest_uri=args.dest,
+            screenshot_path=args.output_png,
+            auto_kill=not args.keep_running,
+            max_retries=args.retries,
+            timeout_sec=args.timeout,
+            ask_user=args.ask_user
+        ))
     elif args.subcommand == "put":
         if os.path.exists(args.file):
             with open(args.file, "r", encoding="utf-8", errors="replace") as f:
