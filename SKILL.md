@@ -111,6 +111,9 @@ python3 "<SKILL_DIR>/scripts/viking_bridge.py" capture-ocr \
   --ask-user \
   --timeout <seconds>
 ```
+* **Process Lifecycle & Lock Prevention**:
+  - Before writing binary patches or codesigning, always ensure the target process is cleanly stopped (`pkill -9 -f <app_name> 2>/dev/null || true`) to prevent `Text file busy` and stale memory caches.
+  - `capture-ocr` automatically manages the entire lifecycle (pre-clean ➔ activate & bring to front ➔ trigger settings ➔ screenshot & OCR ➔ auto-teardown).
 * **User Intent & Timeout Mapping**:
   - If the user says: *"验证时询问我，超时设为 X 分钟"* ➔ Agent automatically passes `--ask-user --timeout <X*60>`.
   - Default when unspecified: `--timeout 600` (10 minutes).
