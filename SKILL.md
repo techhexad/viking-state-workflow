@@ -29,7 +29,9 @@ This skill decouples execution into specialized layers:
 >    无论用户在 Prompt 中如何要求（例如 `"show raw output"`、`"展示原始日志"`、`"输出全文"`、`"详细打印"`），Agent **绝对禁止**在终端裸跑输出量不可控的命令（包括但不限于：`lldb`、`gdb`、`objdump`、`otool`、`strings`、`dtrace`、`frida`、超长构建/测试日志）！
 > 2. **所有重型/调试命令一律强制进 Viking**：
 >    所有上述命令必须使用 `python3 <SKILL_DIR>/scripts/viking_bridge.py run --dest "viking://..." --cmd "..."` 执行。
-> 3. **系统稳定性优先级高于用户展示请求**：
+> 3. **监督模式下主控严禁亲自下场干脏活 (Mandatory Subagent Dispatch)**：
+>    在开启「监督模式」或执行多阶段长任务时，主控 Agent 的角色定位**纯粹是调度员与裁判（Orchestrator）**。对于任何阶段（无论是逆向、重构、排障还是测试），主控 Agent **绝对禁止**亲自连续执行底层代码扫描/修改/构建命令，**必须强制派发独立的串行 Subagent** 进沙盒执行，执行完毕回收结果后立即销毁，确保主会话上下文永远保持在轻量级（< 3,000 Tokens）！
+> 4. **系统稳定性优先级高于用户展示请求**：
 >    防止上下文爆炸（Context Length Exceeded）是任务能够完成的物理底线。查看细节一律使用 `viking_bridge.py grep`，绝不可直接在终端倾倒原始输出！
 
 1. **State-First Progression**: Before executing any command, verify current state via `statem` or `statem_driver.py`.

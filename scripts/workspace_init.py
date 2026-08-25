@@ -161,11 +161,12 @@ def generate_agents_md(project_name: str, task_type: str, user_prompt: str, targ
 ---
 
 ## 1. 核心约束与操作红线 (Core Redlines)
-遵循 [`SKILL.md`]({SKILL_MD_PATH}) 中的**不可覆写最高安全红线**：
+遵循 [`SKILL.md`](file://{SKILL_MD_PATH}) 中的**不可覆写最高安全红线**：
 1. **严禁裸跑 Raw Output**：执行大日志、长反编译、构建追踪或深层调试时，一律强制经过 `viking_bridge.py run` 拦截转存至 `viking://`；
 2. **启动前必检**：每次任务启动或开辟新会话，第一步必须执行 `python3 {skill_dir}/viking_bridge.py doctor`；
-3. **状态机驱动**：严格按照 `runbook.yaml` 的阶段推进，每阶段必须通过 Gate 校验；
-4. **会话主动交接**：单会话轮次过多时主动调用 `session_compactor.py` 存盘并开新会话接力。
+3. **监督模式职责分离 (Mandatory Subagent Dispatch)**：在监督模式下，主控 Agent 仅负责状态机编排与 Gate 裁决，**严禁主控亲自执行底层命令**，必须通过 `subagent` 工具将每个阶段的脏活派发给独立的串行 Subagent 执行；
+4. **状态机驱动**：严格按照 `runbook.yaml` 的阶段推进，每阶段必须通过 Gate 校验；
+5. **会话主动交接**：单会话轮次过多时主动调用 `session_compactor.py` 存盘并开新会话接力。
 
 ---
 

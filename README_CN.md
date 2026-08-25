@@ -262,9 +262,11 @@ python3 scripts/session_compactor.py \
 
 ---
 
-## 🛡️ 双层上下文防爆防御体系
+## 🛡️ 双层上下文防爆防御体系与角色职责分离
 
-1. **第一层：认知与规范红线 (`SKILL.md`)**：最高安全红线，严禁裸跑 `lldb`、`objdump`、`otool`、`strings` 或超长测试追踪日志。
+1. **第一层：认知与规范红线 (`SKILL.md`)**：
+   - **严禁 Raw Output 直出**：严禁裸跑 `lldb`、`objdump`、`otool`、`strings` 或超长测试追踪日志；
+   - **监督模式职责绝对分离 (Mandatory Subagent Dispatch)**：主控 Agent 仅作为状态调度员与裁判，任何阶段（重构/逆向/排障/测试）的脏活累活一律强制派发串行 Subagent，严禁主控亲自连续执行底层命令，确保主会话上下文永远保持在 < 3k Token！
 2. **第二层：物理拦截垫片 (`scripts/bin/`)**：在操作系统层面提供透明代理，即便 Agent 偶尔裸跑命令，垫片也会在底层自动捕获超过 40 行的内容并转存至 OpenViking。
 
 ---

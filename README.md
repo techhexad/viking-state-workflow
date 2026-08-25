@@ -261,9 +261,11 @@ Users can naturally interact with AI Agents using everyday natural language, act
 
 ---
 
-## 🛡️ Dual-Layer Context Overflow Prevention
+## 🛡️ Dual-Layer Context Overflow Prevention & Role Separation
 
-1. **Layer 1: Cognitive Redlines (`SKILL.md`)**: Strict prohibition against raw dumping of `lldb`, `objdump`, `otool`, `strings`, or long test traces directly to stdout.
+1. **Layer 1: Cognitive Redlines & Role Separation (`SKILL.md`)**:
+   - **Strict No-Raw-Output Rule**: Strict prohibition against raw dumping of `lldb`, `objdump`, `otool`, `strings`, or long test traces directly to stdout.
+   - **Mandatory Subagent Dispatch in Supervisor Mode**: The Main Agent acts strictly as an Orchestrator/Judge. For any task phase (refactor, reverse-engineering, debugging, testing), the heavy work MUST be dispatched to isolated sequential Subagents. The Main Agent is strictly forbidden from executing heavy batch tools directly, keeping main context < 3k tokens.
 2. **Layer 2: Physical Shims (`scripts/bin/`)**: Transparent command wrappers intercept raw binary invocations and auto-pipe outputs exceeding 40 lines into OpenViking.
 
 ---
