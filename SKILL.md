@@ -14,8 +14,8 @@ description: >-
 Long-running agent tasks (e.g., binary reverse engineering, large-scale code refactoring, complex bug debugging) frequently suffer from **context window explosion** when tool outputs (such as `objdump`, compiler logs, OCR transcripts) are dumped linearly into the conversation.
 
 This skill decouples execution into specialized layers:
-1. **State Control Layer (StateM)**: Enforces progress through explicit YAML runbooks, checkpoints, and gate checks.
-2. **Context & Memory Layer (OpenViking)**: Offloads heavy tool outputs to a virtual filesystem (`viking://`), providing progressive L0/L1 discovery and targeted snippet retrieval.
+1. **State Control Layer ([StateM](https://github.com/henryqin1997/statem))**: Enforces progress through explicit YAML runbooks, checkpoints, and gate checks.
+2. **Context & Memory Layer ([OpenViking](https://github.com/volcengine/OpenViking))**: Offloads heavy tool outputs to a virtual filesystem (`viking://`), providing progressive L0/L1 discovery and targeted snippet retrieval.
 3. **Zero-VRAM UI Inspection (macOS Vision OCR)**: Extracts text from UI screenshots in milliseconds via the Apple Neural Engine without requiring a multimodal vision LLM or eating image tokens.
 4. **Execution Agent (DSH, Hermes, OpenCode, Claude Code, etc.)**: Keeps active prompt context small (< 8,000 tokens) by executing sandboxed steps and interacting through CLI bridges.
 

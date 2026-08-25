@@ -7,7 +7,14 @@
 
 [English](README.md) | [中文说明](README_CN.md)
 
-A long-horizon AI agent execution framework combining **StateM** (deterministic state machine & YAML runbooks), **OpenViking** (hierarchical VFS context database), and **macOS Vision OCR** (zero-VRAM native UI text extraction) to prevent LLM context window overflow, eliminate OOM crashes, and enforce structured execution across AI agents.
+A long-horizon AI agent execution framework combining **[StateM](https://github.com/henryqin1997/statem)** (deterministic state machine & YAML runbooks), **[OpenViking](https://github.com/volcengine/OpenViking)** (hierarchical VFS context database by Volcengine), and **macOS Vision OCR** (zero-VRAM native UI text extraction) to prevent LLM context window overflow, eliminate OOM crashes, and enforce structured execution across AI agents.
+
+---
+
+## 🔗 Upstream & Core Dependencies
+
+- **[OpenViking](https://github.com/volcengine/OpenViking)** (`volcengine/OpenViking`): Open-source context database & virtual filesystem (`viking://`) designed for AI Agents.
+- **[StateM](https://github.com/henryqin1997/statem)** (`henryqin1997/statem`): Lightweight deterministic state machine engine for agent runbook execution.
 
 ---
 

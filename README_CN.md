@@ -7,7 +7,14 @@
 
 [English](README.md) | [中文说明](README_CN.md)
 
-**Viking State Workflow** 是专为 AI Agent（智能体）设计的长流程复杂任务执行框架。通过融合 **StateM**（确定性状态机与声明式 YAML Runbook）、**OpenViking**（分层 VFS 上下文数据库）以及 **macOS 原生 Vision OCR**（零显存文字识别），彻底杜绝大模型上下文爆炸、消除本地模型显存溢出（OOM）崩溃，并为多智能体提供结构化、可接力的执行体系。
+**Viking State Workflow** 是专为 AI Agent（智能体）设计的长流程复杂任务执行框架。通过融合 **[StateM](https://github.com/henryqin1997/statem)**（确定性状态机与声明式 YAML Runbook）、**[OpenViking](https://github.com/volcengine/OpenViking)**（字节跳动火山引擎开源的分层 VFS 上下文数据库）以及 **macOS 原生 Vision OCR**（零显存文字识别），彻底杜绝大模型上下文爆炸、消除本地模型显存溢出（OOM）崩溃，并为多智能体提供结构化、可接力的执行体系。
+
+---
+
+## 🔗 上游开源项目与核心依赖引用
+
+- **[OpenViking](https://github.com/volcengine/OpenViking)** (`volcengine/OpenViking`)：专为 AI Agent 设计的开源分层上下文数据库与虚拟文件系统 (`viking://`)。
+- **[StateM](https://github.com/henryqin1997/statem)** (`henryqin1997/statem`)：用于驱动 Agent 执行声明式 Runbook 的轻量级确定性状态机引擎。
 
 ---
 
