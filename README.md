@@ -2,18 +2,21 @@
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Python](https://img.shields.io/badge/Python-3.9+-green.svg)](https://www.python.org/)
+[![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Linux-lightgrey.svg)]()
 [![Status](https://img.shields.io/badge/Status-Active-brightgreen.svg)]()
 
-A long-horizon agent execution framework combining **StateM** (deterministic state machine & YAML runbooks), **OpenViking** (hierarchical VFS context database), and **macOS Vision OCR** (zero-VRAM native UI text extraction) to prevent LLM context window overflow, eliminate OOM crashes, and enforce structured execution across AI agents.
+[English](README.md) | [中文说明](README_CN.md)
+
+A long-horizon AI agent execution framework combining **StateM** (deterministic state machine & YAML runbooks), **OpenViking** (hierarchical VFS context database), and **macOS Vision OCR** (zero-VRAM native UI text extraction) to prevent LLM context window overflow, eliminate OOM crashes, and enforce structured execution across AI agents.
 
 ---
 
 ## 🎯 The Problem
 
-When running complex, long-running agent tasks (e.g. binary reverse engineering, code refactoring, system diagnostics):
-- Agent turns linearly accumulate massive tool outputs (`objdump`, stack traces, build logs, multimodal images).
-- Context windows explode (> 300k tokens), triggering `400 Context Length Exceeded` or local LLM Out-Of-Memory (OOM) crashes.
-- Sessions deadlock, losing state and forcing humans to manually distill and restart conversations.
+When running complex, long-running agent tasks (e.g. binary reverse engineering, large-scale code refactoring, full-stack bug hunting):
+- Agent turns linearly accumulate massive tool outputs (`objdump`, stack traces, compiler logs, multi-megabyte disassemblies).
+- Context windows explode (> 100k–300k tokens), triggering `400 Context Length Exceeded` or local LLM Out-Of-Memory (OOM) crashes.
+- Sessions deadlock, losing operational state and forcing humans to manually distill and restart conversations.
 
 ---
 
@@ -49,7 +52,8 @@ When running complex, long-running agent tasks (e.g. binary reverse engineering,
 ```bash
 viking-state-workflow/
 ├── SKILL.md                          # Agent Skill specification (Antigravity & Skills-Manager compliant)
-├── README.md                         # Project documentation
+├── README.md                         # English documentation
+├── README_CN.md                      # Chinese documentation
 ├── LICENSE                           # Apache-2.0 License
 ├── scripts/
 │   ├── workspace_init.py             # Universal project & runbook synthesizer for any task type
@@ -68,19 +72,19 @@ viking-state-workflow/
 
 ## 🚀 Quick Start & Zero-Friction Auto-Bootstrap
 
-### 🌟 零门槛使用（对普通用户只需一句话）：
-用户无需了解底层工具，只需对任意 Agent 说一句话：
-> **“使用 `viking-state-workflow` 技能开始一个新任务：[描述你的任务目标]”**
+### 🌟 Zero-Friction User Experience (Single Prompt Activation)
+Users do not need to memorize tool commands. Simply say to any AI agent:
+> **"Use `viking-state-workflow` skill to start a new task: [Describe your task goal]"**
 
-Agent 会**全自动执行 4 步初始化闭环**：
-1. `viking_bridge.py doctor` ➔ 自动体检并嗅探端口与鉴权；
-2. `workspace_init.py` ➔ 自动识别任务类型（重构/逆向/排障/通用）并生成专属 `AGENTS.md` 与 `runbook.yaml`；
-3. `statem_driver.py --status` ➔ 确认第一阶段起点；
-4. 立即开始执行阶段 1 工作！
+The Agent will **autonomously execute the 4-step initialization sequence**:
+1. `viking_bridge.py doctor` ➔ Automatically runs pre-flight health check, sniffing live port (e.g. 1933) and auth keys.
+2. `workspace_init.py` ➔ Automatically identifies task archetype (`reverse_engineering`, `code_refactor`, `deep_debugging`, `general_long_task`) and synthesizes tailored `AGENTS.md` and `runbook.yaml`.
+3. `statem_driver.py --status` ➔ Displays initial state and gate requirements.
+4. Immediately commences execution of Phase 1!
 
 ---
 
-### 🔧 开发者与底层工具链流水线 (Manual Reference)
+### 🔧 Developer & Toolchain Pipeline Reference
 
 #### 1. Pre-flight Doctor Check (Mandatory First Step)
 Automatically verify OpenViking server availability, auth keys, and port alignment (e.g. 1933):
@@ -98,12 +102,12 @@ python3 scripts/workspace_init.py \
   --dir "."
 ```
 
-### 3. Check State & Phase Gates
+#### 3. Check State & Phase Gates
 ```bash
 python3 scripts/statem_driver.py --status
 ```
 
-### 4. Execute Heavy Commands with Automatic VFS Offload
+#### 4. Execute Heavy Commands with Automatic VFS Offload
 Prevent LLM context explosion by offloading commands that produce large output (> 40 lines):
 ```bash
 python3 scripts/viking_bridge.py run \
@@ -112,7 +116,7 @@ python3 scripts/viking_bridge.py run \
 ```
 *The command returns an L0 preview + line count, saving the full body into OpenViking.*
 
-### 5. Inspect Code Snippets On-Demand
+#### 5. Inspect Code Snippets On-Demand
 Query specific functions or addresses without pulling the entire file into context:
 ```bash
 python3 scripts/viking_bridge.py grep \
@@ -121,7 +125,7 @@ python3 scripts/viking_bridge.py grep \
   --context 15
 ```
 
-### 6. All-in-One GUI Verification & Vision OCR (Zero-VRAM)
+#### 6. All-in-One GUI Verification & Vision OCR (Zero-VRAM)
 Auto-activate application, elevate window to front, open settings, capture screenshot, and run native macOS Vision OCR:
 ```bash
 python3 scripts/viking_bridge.py capture-ocr \
@@ -131,13 +135,13 @@ python3 scripts/viking_bridge.py capture-ocr \
   --timeout 600
 ```
 
-### 7. Advance State & Checkpoint
+#### 7. Advance State & Checkpoint
 Validate gate conditions and advance to the next state:
 ```bash
 python3 scripts/statem_driver.py --advance
 ```
 
-### 8. Distill Session & Handover
+#### 8. Distill Session & Handover
 When conversation history grows long (> 20k tokens), distill discoveries into a compact report (< 500 tokens):
 ```bash
 python3 scripts/session_compactor.py \
