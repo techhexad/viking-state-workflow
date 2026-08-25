@@ -72,14 +72,22 @@ python3 "<SKILL_DIR>/scripts/viking_bridge.py" doctor
 - Tests full VFS read/write handshake.
 - **If checks fail**: The agent MUST resolve the alert (e.g. start `openviking-server`) before starting the task, preventing silent local fallbacks.
 
-### Step 2: Auto-Generate or Load Runbook
+### Step 2: Auto-Initialize Workspace & Runbook
 
-1. Check if `runbook.yaml` already exists in the current workspace:
-   ```bash
-   python3 "<SKILL_DIR>/scripts/statem_driver.py" --runbook runbook.yaml --status
-   ```
-2. **If `runbook.yaml` does not exist**:
-   The Agent **MUST automatically analyze the user's task** (e.g. reverse engineering, bug fix, feature development, batch refactor), decompose it into 3–5 logical phases with concrete gate conditions, and create a tailored `runbook.yaml` using `<SKILL_DIR>/templates/runbook_template.yaml` as the structural template.
+For any new or existing project, the Agent or user can one-click initialize the tailored environment:
+```bash
+python3 "<SKILL_DIR>/scripts/viking_bridge.py" init [--project "<name>"]
+```
+*The init command automatically:*
+1. Inspects the current directory for target assets (`.app`, `.dmg`, binaries, etc.).
+2. Generates a lean, project-tailored `AGENTS.md` linked to `SKILL.md`.
+3. Creates a customized 4-stage StateM `runbook.yaml` (if missing).
+4. Executes the pre-flight `doctor` check.
+
+To inspect or verify state:
+```bash
+python3 "<SKILL_DIR>/scripts/statem_driver.py" --status
+```
 
 ### Step 3: Sandboxed Execution with VFS Offloading
 

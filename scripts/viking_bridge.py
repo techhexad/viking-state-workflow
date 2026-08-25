@@ -402,9 +402,176 @@ def capture_and_ocr(app_path: str, open_settings=True, dest_uri: str = None, scr
     return 0 if (captured_text and len(captured_text.splitlines()) >= 2) else 1
 
 
+def init_workspace(project_name: str = None, project_type: str = "reverse", target_asset: str = None):
+    """Auto-generate tailored AGENTS.md and runbook.yaml for a new workspace."""
+    cwd = os.getcwd()
+    detected_name = project_name or os.path.basename(cwd)
+    skill_dir = SCRIPT_DIR.rstrip("/scripts")
+    skill_md_path = os.path.join(skill_dir, "SKILL.md")
+
+    # Auto-detect target assets in workspace if not provided
+    if not target_asset:
+        apps = glob.glob("*.app") + glob.glob("work/*.app") + glob.glob("*.dmg")
+        if apps:
+            target_asset = apps[0]
+        else:
+            target_asset = f"{detected_name}.app"
+
+    print("=" * 65)
+    print(f"🚀 [Viking Workspace Auto-Initializer]")
+    print("=" * 65)
+    print(f"📁 Workspace Directory : {cwd}")
+    print(f"🏷️ Project Name        : {detected_name}")
+    print(f"📦 Target Asset        : {target_asset}")
+    print(f"🛠️ Skill Specification : {skill_md_path}")
+    print("=" * 65)
+
+    # 1. Generate lean, tailored AGENTS.md
+    agents_md_content = f"""# {detected_name.upper()} Workspace Guidelines
+
+- **Active Skill**: [`viking-state-workflow`]({skill_md_path})
+- **Toolchain Path**: `{SCRIPT_DIR}`
+- **Current Runbook**: `runbook.yaml` (Task: `{detected_name}_pipeline`)
+- **VFS Prefix**: `viking://knowledge/{detected_name}/`
+- **Handover State**: `HANDOVER.md`
+
+---
+
+## 1. 核心约束与操作红线 (Core Redlines)
+遵循 [`SKILL.md`]({skill_md_path}) 中的**不可覆写最高安全红线**：
+1. **严禁裸跑 Raw Output**：执行反汇编、符号提取、LLDB 调试、动态探针时，一律强制经过 `viking_bridge.py run` 拦截转存至 `viking://`；
+2. **启动前必检**：每次任务启动或开辟新会话，第一步必须执行 `python3 {SCRIPT_DIR}/viking_bridge.py doctor`；
+3. **状态机驱动**：严格按照 `runbook.yaml` 各阶段推进，每阶段必须通过 Gate 校验。
+
+---
+
+## 2. 本项目专属快捷指令 (Project Quick Commands)
+
+### 0. 前置体检
+```bash
+python3 {SCRIPT_DIR}/viking_bridge.py doctor
+```
+
+### 1. 状态机推进与检查
+```bash
+# 查看当前状态
+python3 {SCRIPT_DIR}/statem_driver.py --status
+
+# 完成当前阶段后推进
+python3 {SCRIPT_DIR}/statem_driver.py --advance
+```
+
+### 2. 重型分析与精准检索
+```bash
+# 执行重型分析并转存 Viking
+python3 {SCRIPT_DIR}/viking_bridge.py run \\
+  --dest "viking://knowledge/{detected_name}/analysis/main.log" \\
+  --cmd "objdump -d {target_asset}"
+
+# 精准切片检索关键符号
+python3 {SCRIPT_DIR}/viking_bridge.py grep \\
+  --uri "viking://knowledge/{detected_name}/analysis/main.log" \\
+  --pattern "<keyword>" \\
+  --context 15
+```
+
+### 3. 一键 UI 自动化验证 (阶段: verify)
+```bash
+python3 {SCRIPT_DIR}/viking_bridge.py capture-ocr \\
+  --app "{target_asset}" \\
+  --dest "viking://knowledge/{detected_name}/ocr/ui_status.txt" \\
+  --ask-user \\
+  --timeout 600
+```
+
+### 4. 补丁/构建前进程清理
+```bash
+pkill -9 -f {detected_name} 2>/dev/null || true
+```
+
+### 5. 阶段成果存盘与会话压缩 (Session Handover)
+```bash
+python3 {SCRIPT_DIR}/session_compactor.py \\
+  --project "{detected_name}" \\
+  --milestones "<已完成的阶段目标>" \\
+  --discoveries "<已确认的关键地址与符号>" \\
+  --next-actions "<新会话的第一步行动>" \\
+  --output HANDOVER.md
+```
+"""
+    with open("AGENTS.md", "w", encoding="utf-8") as f:
+        f.write(agents_md_content)
+    print("✅ Created/Updated: AGENTS.md (Tailored to this workspace)")
+
+    # 2. Generate runbook.yaml if missing
+    if not os.path.exists("runbook.yaml"):
+        runbook_template = f"""name: "{detected_name}_pipeline"
+version: "1.0.0"
+initial_state: "prepare_and_unpack"
+current_state: "prepare_and_unpack"
+
+states:
+  prepare_and_unpack:
+    description: "Extract assets, prepare workspace, verify architectures and base signatures."
+    gates:
+      - "Target assets exist and are readable"
+    transition:
+      on_success: "deep_analysis_and_scan"
+      on_failure: "prepare_and_unpack"
+
+  deep_analysis_and_scan:
+    description: "Perform heavy analysis, symbol scanning, and logic tracing (Offload to Viking)."
+    gates:
+      - "Full analysis stored in viking://knowledge/{detected_name}/"
+      - "Target function points identified"
+    transition:
+      on_success: "craft_patch_or_implementation"
+      on_failure: "deep_analysis_and_scan"
+
+  craft_patch_or_implementation:
+    description: "Apply targeted patches, code refactor, or logic changes."
+    gates:
+      - "Patch script generated and applied"
+      - "Binary re-signed / builds succeed"
+    transition:
+      on_success: "verify_and_test"
+      on_failure: "craft_patch_or_implementation"
+
+  verify_and_test:
+    description: "Run automated tests, launch verification, and capture OCR UI state."
+    gates:
+      - "Application runs without crash"
+      - "Feature verified via OCR or test suite"
+    transition:
+      on_success: "package_delivery"
+      on_crash: "craft_patch_or_implementation"
+      on_failure: "craft_patch_or_implementation"
+
+  package_delivery:
+    description: "Task successfully executed and verified."
+"""
+        with open("runbook.yaml", "w", encoding="utf-8") as f:
+            f.write(runbook_template)
+        print("✅ Created: runbook.yaml (4-Stage State Machine)")
+    else:
+        print("ℹ️ Existing runbook.yaml detected (Kept unchanged)")
+
+    # 3. Run Doctor check
+    print("\n🔍 Running Pre-flight Doctor Check...")
+    doctor()
+    print("🎉 Workspace initialization complete! Agent is ready to execute.\n")
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(description="OpenViking Context & Memory Bridge")
     subparsers = parser.add_subparsers(dest="subcommand", required=True)
+
+    # Init
+    init_parser = subparsers.add_parser("init", help="Auto-initialize AGENTS.md and runbook.yaml for current project")
+    init_parser.add_argument("--project", help="Custom project name (defaults to current folder name)")
+    init_parser.add_argument("--type", default="reverse", choices=["reverse", "dev", "debug"], help="Project workflow type")
+    init_parser.add_argument("--target", help="Path to main target app or asset")
 
     # Doctor / Pre-flight
     subparsers.add_parser("doctor", help="Run full pre-flight verification before starting task")
@@ -451,7 +618,9 @@ def main():
 
     args = parser.parse_args()
 
-    if args.subcommand == "doctor":
+    if args.subcommand == "init":
+        sys.exit(init_workspace(args.project, args.type, args.target))
+    elif args.subcommand == "doctor":
         sys.exit(0 if doctor() else 1)
     elif args.subcommand == "ping":
         sys.exit(0 if ping() else 1)
