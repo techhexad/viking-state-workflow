@@ -143,13 +143,22 @@ python3 scripts/viking_bridge.py capture-ocr \
   --timeout 600
 ```
 
-#### 7. Advance State & Checkpoint
+#### 7. Advance State & Checkpoint (Single-Agent Mode)
 Validate gate conditions and advance to the next state:
 ```bash
 python3 scripts/statem_driver.py --advance
 ```
 
-#### 8. Distill Session & Handover
+#### 8. Sequential Subagent Supervision & Auto-Healing (Multi-Agent Mode)
+Orchestrate sequential subagents across states with automated error classification and negative-constraint injection:
+```bash
+python3 scripts/statem_supervisor.py \
+  --runbook runbook.yaml \
+  --max-retries 3
+```
+*Auto-heals logic/crash failures (`SIGILL`, `Unlicensed`, `Text file busy`) by rebuilding subagents up to 3 times, while instantly pausing and alerting on fatal barriers (SIP permissions, missing files).*
+
+#### 9. Distill Session & Handover
 When conversation history grows long (> 20k tokens), distill discoveries into a compact report (< 500 tokens):
 ```bash
 python3 scripts/session_compactor.py \

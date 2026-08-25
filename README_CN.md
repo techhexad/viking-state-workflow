@@ -143,13 +143,23 @@ python3 scripts/viking_bridge.py capture-ocr \
   --timeout 600
 ```
 
-#### 7. 推进阶段状态 (State Advance)
+#### 7. 推进阶段状态 (单 Agent 模式)
 验证当前阶段 Gate 门禁达成后，推进至下一阶段：
 ```bash
 python3 scripts/statem_driver.py --advance
 ```
 
-#### 8. 主动会话压缩与无缝接力 (Session Handover)
+#### 8. 串行 Subagent 编排与智能自愈 (多 Agent 监督模式)
+自动调度轻量串行子智能体，执行阶段任务，并基于错误分类学进行智能自愈：
+```bash
+python3 scripts/statem_supervisor.py \
+  --runbook runbook.yaml \
+  --max-retries 3
+```
+* **自愈机制**：遇到逻辑错误、补丁崩溃（`SIGILL`/`SIGSEGV`）、OCR 显示未激活、文件占用等可恢复错误时，自动注入失败原因并**重建 Subagent 重试（最多 3 次）**；
+* **安全熔断**：遇到系统权限（SIP）、缺失物料、基建宕机等致命错误时，**立即停机并请求人工介入**。
+
+#### 9. 主动会话压缩与无缝接力 (Session Handover)
 当多轮会话累积过长（> 20k Tokens）时，将关键技术发现提炼为极简报告（< 500 Tokens）：
 ```bash
 python3 scripts/session_compactor.py \
