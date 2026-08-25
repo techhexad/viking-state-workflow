@@ -39,7 +39,7 @@ All task-specific state should be structured as follows:
 
 ```bash
 <project_root>/
-├── runbook.yaml              # StateM task runbook
+├── runbook.yaml              # StateM task runbook (Auto-generated per task)
 ├── .viking_state/            # Local cache & snapshot metadata
 └── scripts/                  # Skill utilities
 ```
@@ -65,13 +65,14 @@ python3 "<SKILL_DIR>/scripts/viking_bridge.py" ping
 openviking-server --storage-dir ~/.openviking/storage &
 ```
 
-### Step 2: Initialize or Load Runbook
+### Step 2: Auto-Generate or Load Runbook
 
-Check the current active phase:
-```bash
-python3 "<SKILL_DIR>/scripts/statem_driver.py" --runbook runbook.yaml --status
-```
-If starting a new task, generate a `runbook.yaml` using the template at `<SKILL_DIR>/templates/runbook_template.yaml`.
+1. Check if `runbook.yaml` already exists in the current workspace:
+   ```bash
+   python3 "<SKILL_DIR>/scripts/statem_driver.py" --runbook runbook.yaml --status
+   ```
+2. **If `runbook.yaml` does not exist**:
+   The Agent **MUST automatically analyze the user's task** (e.g. reverse engineering, bug fix, feature development, batch refactor), decompose it into 3–5 logical phases with concrete gate conditions, and create a tailored `runbook.yaml` using `<SKILL_DIR>/templates/runbook_template.yaml` as the structural template.
 
 ### Step 3: Sandboxed Execution with VFS Offloading
 
