@@ -168,6 +168,70 @@ python3 scripts/session_compactor.py \
   --next-actions "Apply 4-byte patch and codesign" \
   --output HANDOVER.md
 ```
+Load `HANDOVER.md` in a fresh session (Clean New Chat) to resume at full speed!
+
+---
+
+## 💬 End-to-End Conversational Dialogue Walkthrough
+
+Here is an example showing how a user interacts naturally with an AI Agent across the full lifecycle:
+
+### 🟢 Turn 1: Task Initialization & Zero-Friction Bootstrap
+> **👤 User**:
+> "Use `viking-state-workflow` skill to start a new task: Reverse engineer `TargetApp.dmg` to analyze Pro features and craft a working patch."
+
+> **🤖 Agent**:
+> "Understood! Long-horizon task detected. Autonomously executing initialization loop:
+> 1. ✅ **Pre-flight Health**: Ran `viking_bridge.py doctor` — OpenViking (Port 1933) and auth keys verified.
+> 2. ✅ **Workspace Scaffold**: Identified as `reverse_engineering` archetype; generated `AGENTS.md` and 5-phase `runbook.yaml`.
+> 3. 🎯 **Initial Phase**: `unpack_and_extract` (Extract app and thin binaries).
+> Starting Phase 1 execution now..."
+
+---
+
+### 🟢 Turn 2: Heavy Command Execution & Code Snippet Retrieval
+> **👤 User**:
+> "Is disassembly ready? Search for critical Pro check logic around `fnStatus`."
+
+> **🤖 Agent**:
+> "Disassembly complete!
+> 🛡️ **VFS Context Offload**: Main binary disassembly is 205MB. It was safely offloaded via `viking_bridge.py run` to `viking://knowledge/target_app/disasm/main_disasm.txt` without bloating our active prompt.
+> 🔍 **Targeted Retrieval**: Retrieved key snippet via `viking_bridge.py grep`:
+> ```asm
+> 0x10051da58  bl  func.100507f68       ; Read Pro activation boolean -> w21
+> 0x10051da68  tbz w21, #0, 0x10051db3c ; Branch to unlicensed path (Patch target)
+> ```
+> Recommend replacing the jump at `0x51da68` with true NOP (`1F 20 03 D5`)."
+
+---
+
+### 🟢 Turn 3: Automated GUI Verification & Human Confirmation
+> **👤 User**:
+> "Patch is applied. Launch the app to verify UI status. Prompt me for manual check and wait 3 minutes."
+
+> **🤖 Agent**:
+> "Running all-in-one UI verification pipeline:
+> ```bash
+> python3 scripts/viking_bridge.py capture-ocr \
+>   --app "work/TargetApp.app" \
+>   --dest "viking://knowledge/target_app/ocr/ui.txt" \
+>   --ask-user --timeout 180
+> ```
+> *(Auto-activated app ➔ Brought window to front ➔ Cmd+, opened Settings ➔ Native Vision OCR extracted text)*
+> 
+> ❓ **Human Verification**: OCR recognized `Pro License Activated`. Please check your screen and type `y` to confirm (will auto-confirm and kill test process after 180s timeout)."
+
+---
+
+### 🟢 Turn 4: Proactive Session Compaction & Clean Restart
+> **👤 User**:
+> "Our chat history is over 20k tokens. Create a handover summary and let's continue in a new chat."
+
+> **🤖 Agent**:
+> "Generated `HANDOVER.md` via `session_compactor.py`!
+> 📊 Context compressed to ~400 tokens. Please open a **New Chat** and prompt:
+> > *'Load AGENTS.md and HANDOVER.md, and continue with package_delivery phase.'*
+> The new session will resume instantly with 100% clean context!"
 
 ---
 

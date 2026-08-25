@@ -173,6 +173,69 @@ python3 scripts/session_compactor.py \
 
 ---
 
+## 💬 端到端对话实战示例 (Conversational Dialogue Walkthrough)
+
+以下展示用户如何通过**自然语言对话**与 AI Agent 协作完成整个任务全生命周期：
+
+### 🟢 第 1 轮：任务发起与零门槛自动引导
+> **👤 用户**：
+> “使用 `viking-state-workflow` 技能开始一个新任务：逆向分析 `TargetApp.dmg` 的 Pro 功能并编写补丁。”
+
+> **🤖 Agent**：
+> “收到！检测到长任务请求，正在自动执行初始化闭环：
+> 1. ✅ **环境体检**：已运行 `viking_bridge.py doctor`，OpenViking（端口 1933）与鉴权连接正常；
+> 2. ✅ **工作区脚手架**：识别为 `reverse_engineering` 任务，已为你生成 `AGENTS.md` 与 5 阶段 `runbook.yaml`；
+> 3. 🎯 **当前阶段**：`unpack_and_extract`（解包与提取主二进制）。
+> 正在开始第一阶段工作……”
+
+---
+
+### 🟢 第 2 轮：执行重型命令与代码切片检索
+> **👤 用户**：
+> “反汇编生成了吗？帮我检索下关于 `fnStatus` 和 Pro 门控判断的关键代码。”
+
+> **🤖 Agent**：
+> “已完成反汇编！
+> 🛡️ **防爆拦截**：主二进制反汇编文件高达 205MB，已通过 `viking_bridge.py run` 安全外挂至 `viking://knowledge/target_app/disasm/main_disasm.txt`，未占用当前会话上下文。
+> 🔍 **切片检索**：通过 `viking_bridge.py grep` 提取到关键代码块：
+> ```asm
+> 0x10051da58  bl  func.100507f68       ; 读取 Pro 激活布尔值 -> w21
+> 0x10051da68  tbz w21, #0, 0x10051db3c ; 未激活跳转分支 (Patch 目标)
+> ```
+> 建议将 `0x51da68` 处的跳转指令替换为真 NOP（`1F 20 03 D5`）。”
+
+---
+
+### 🟢 第 3 轮：GUI 界面自动化验证与人机协同
+> **👤 用户**：
+> “补丁打好了，启动 App 验证一下 UI 激活状态。验证时提示我核验，等待我 3 分钟。”
+
+> **🤖 Agent**：
+> “正在执行一键 UI 验证流水线：
+> ```bash
+> python3 scripts/viking_bridge.py capture-ocr \
+>   --app "work/TargetApp.app" \
+>   --dest "viking://knowledge/target_app/ocr/ui.txt" \
+>   --ask-user --timeout 180
+> ```
+> *(自动置顶窗口 ➔ Cmd+, 呼出设置 ➔ 截屏并 Vision OCR 识别)*
+> 
+> ❓ **人工核验提示**：OCR 识别到界面文字为 `Pro License Activated`。请在屏幕上核对，输入 `y` 确认（将在 180 秒后自动超时确认并退出进程释放文件锁）。”
+
+---
+
+### 🟢 第 4 轮：主动会话接力（换新会话满血复活）
+> **👤 用户**：
+> “当前会话 Token 已经 2 万多了，做一下存盘，我们开新会话继续打包。”
+
+> **🤖 Agent**：
+> “已运行 `session_compactor.py` 生成 `HANDOVER.md`！
+> 📊 当前上下文已压缩为 400 Token。请在 DSH 中开启一个 **New Chat（新会话）**，并在首轮发送：
+> > *‘请读取 AGENTS.md 和 HANDOVER.md，继续执行 package_delivery 阶段。’*
+> 新会话将以极轻量上下文满血继续接力！”
+
+---
+
 ## 🛡️ 双层上下文防爆防御体系
 
 1. **第一层：认知与规范红线 (`SKILL.md`)**：最高安全红线，严禁裸跑 `lldb`、`objdump`、`otool`、`strings` 或超长测试追踪日志。
