@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Viking Safe Shim for lldb
+# Intercepts raw lldb invocations and prevents terminal context overflow
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REAL_BIN="$(which -a lldb | grep -v "$SCRIPT_DIR/bin" | head -n 1)"
+
+if [ -z "$REAL_BIN" ]; then
+    REAL_BIN="/usr/bin/lldb"
+fi
+
+DEST_URI="viking://knowledge/auto_intercept/lldb_$(date +%s).log"
+python3 "$SCRIPT_DIR/viking_bridge.py" run --dest "$DEST_URI" --cmd "$REAL_BIN $*"
