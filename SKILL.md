@@ -103,9 +103,13 @@ python3 "<SKILL_DIR>/scripts/viking_bridge.py" capture-ocr \
   --app "<path_to_app>" \
   --dest "viking://knowledge/<project>/ocr/ui_status.txt" \
   --ask-user \
-  --timeout 600
+  --timeout <seconds>
 ```
-*(This automatically activates the App, sends Cmd+, to open Settings via AppleScript, takes a screenshot, runs Vision OCR, prompts the user if confirmation is desired, and if the user does not respond within `--timeout` (e.g. 600s/10 minutes), automatically proceeds to the self-healing pipeline without blocking forever).*
+* **User Intent & Timeout Mapping**:
+  - If the user says: *"验证时询问我，超时设为 X 分钟"* ➔ Agent automatically passes `--ask-user --timeout <X*60>`.
+  - Default when unspecified: `--timeout 600` (10 minutes).
+  - If the user says: *"无需询问/全自动运行"* ➔ Agent omits `--ask-user`.
+  - If the user does not respond within `--timeout`, it automatically falls back to self-healing without blocking.
 
 Or run OCR directly on an existing screenshot:
 ```bash
