@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Source this file to activate Viking transparent interception in the current shell:
-# source /Users/richliu/Git/viking-state-workflow/scripts/viking_env.sh
+# source <path_to_viking_state_workflow>/scripts/viking_env.sh
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export PATH="$SCRIPT_DIR/bin:$PATH"

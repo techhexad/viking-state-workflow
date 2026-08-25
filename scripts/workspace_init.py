@@ -240,7 +240,7 @@ def generate_runbook_yaml(project_name: str, task_type: str, user_prompt: str, t
 
 def main():
     parser = argparse.ArgumentParser(description="Auto-Synthesize tailored AGENTS.md & runbook.yaml for any project")
-    parser.add_argument("--project", required=True, help="Project / repository name (e.g. target_app, my-refactor)")
+    parser.add_argument("--project", required=True, help="Project / repository name (e.g. target_app, my_refactor)")
     parser.add_argument("--type", default="general_long_task", choices=["reverse_engineering", "code_refactor", "deep_debugging", "general_long_task"], help="Task archetype")
     parser.add_argument("--prompt", default="", help="User's original prompt description")
     parser.add_argument("--dir", default=".", help="Target workspace directory")
