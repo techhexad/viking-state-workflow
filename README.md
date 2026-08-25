@@ -66,15 +66,29 @@ viking-state-workflow/
 
 ---
 
-## 🚀 Quick Start & SOP
+## 🚀 Quick Start & Zero-Friction Auto-Bootstrap
 
-### 1. Pre-flight Doctor Check (Mandatory First Step)
+### 🌟 零门槛使用（对普通用户只需一句话）：
+用户无需了解底层工具，只需对任意 Agent 说一句话：
+> **“使用 `viking-state-workflow` 技能开始一个新任务：[描述你的任务目标]”**
+
+Agent 会**全自动执行 4 步初始化闭环**：
+1. `viking_bridge.py doctor` ➔ 自动体检并嗅探端口与鉴权；
+2. `workspace_init.py` ➔ 自动识别任务类型（重构/逆向/排障/通用）并生成专属 `AGENTS.md` 与 `runbook.yaml`；
+3. `statem_driver.py --status` ➔ 确认第一阶段起点；
+4. 立即开始执行阶段 1 工作！
+
+---
+
+### 🔧 开发者与底层工具链流水线 (Manual Reference)
+
+#### 1. Pre-flight Doctor Check (Mandatory First Step)
 Automatically verify OpenViking server availability, auth keys, and port alignment (e.g. 1933):
 ```bash
 python3 scripts/viking_bridge.py doctor
 ```
 
-### 2. Auto-Synthesize New Project Workspace
+#### 2. Auto-Synthesize New Project Workspace
 Synthesize a customized `AGENTS.md` and tailored `runbook.yaml` for any task type:
 ```bash
 python3 scripts/workspace_init.py \
