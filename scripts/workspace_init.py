@@ -148,6 +148,26 @@ def generate_agents_md(project_name: str, task_type: str, user_prompt: str, targ
     tmpl = TEMPLATES.get(task_type, TEMPLATES["general_long_task"])
     skill_dir = SCRIPT_DIR
 
+    # Check for historical macro recipes in Viking VFS
+    recipe_section = ""
+    recipe_file = os.path.expanduser(f"~/.openviking/local_vfs/memory/recipes/{task_type}.md")
+    if os.path.exists(recipe_file):
+        try:
+            with open(recipe_file, "r", encoding="utf-8", errors="replace") as rf:
+                recipe_text = rf.read().strip()
+                if recipe_text:
+                    recipe_section = f"""
+---
+
+## 💡 历史同类任务沉淀经验 (Historical Recipes & Playbook)
+> [!TIP]
+> 系统自动从 OpenViking 全局范式库 (`viking://memory/recipes/{task_type}.md`) 检索到以下历史成功经验：
+>
+{recipe_text}
+"""
+        except Exception:
+            pass
+
     content = f"""# {project_name} Workspace Guidelines (Viking State Workflow)
 
 - **Task Type**: {tmpl['title']}
@@ -167,7 +187,7 @@ def generate_agents_md(project_name: str, task_type: str, user_prompt: str, targ
 3. **监督模式职责分离 (Mandatory Subagent Dispatch)**：在监督模式下，主控 Agent 仅负责状态机编排与 Gate 裁决，**严禁主控亲自执行底层命令**，必须通过 `subagent` 工具将每个阶段的脏活派发给独立的串行 Subagent 执行；
 4. **状态机驱动**：严格按照 `runbook.yaml` 的阶段推进，每阶段必须通过 Gate 校验；
 5. **会话主动交接**：单会话轮次过多时主动调用 `session_compactor.py` 存盘并开新会话接力。
-
+{recipe_section}
 ---
 
 ## 2. 本项目专属快捷指令 (Project Quick Commands)

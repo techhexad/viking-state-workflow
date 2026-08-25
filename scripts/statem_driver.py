@@ -182,6 +182,57 @@ def show_status(runbook_path: str):
     print("=" * 60 + "\n")
 
 
+def _auto_archive_completed_recipe(runbook_path: str, data: dict):
+    """Automatically distills and archives macro recipes into Viking when task completes."""
+    task_name = data.get("task_name", data.get("name", "unnamed_task"))
+    desc = data.get("description", "")
+    
+    # Infer archetype
+    archetype = "general_long_task"
+    desc_lower = (desc + " " + task_name).lower()
+    if any(k in desc_lower for k in ["reverse", "crack", "patch", "dmg", "disasm", "mach-o", "逆向", "破解"]):
+        archetype = "reverse_engineering"
+    elif any(k in desc_lower for k in ["refactor", "orm", "migrate", "rewrite", "重构", "迁移"]):
+        archetype = "code_refactor"
+    elif any(k in desc_lower for k in ["debug", "bug", "crash", "排障", "修复", "崩溃"]):
+        archetype = "deep_debugging"
+
+    ws_dir = os.path.dirname(os.path.abspath(runbook_path)) if runbook_path else "."
+    handover_file = os.path.join(ws_dir, "HANDOVER.md")
+    handover_content = ""
+    if os.path.exists(handover_file):
+        try:
+            with open(handover_file, "r", encoding="utf-8", errors="replace") as f:
+                handover_content = f.read()
+        except Exception:
+            pass
+
+    # Destination in Viking VFS
+    local_recipe_dir = os.path.expanduser("~/.openviking/local_vfs/memory/recipes")
+    os.makedirs(local_recipe_dir, exist_ok=True)
+    recipe_path = os.path.join(local_recipe_dir, f"{archetype}.md")
+
+    entry_lines = [
+        f"\n### 📦 [{datetime.now().strftime('%Y-%m-%d %H:%M')}] {task_name}",
+        f"- **Goal**: {desc}",
+    ]
+    if handover_content:
+        entry_lines.append("- **Distilled Learnings & Recipes**:")
+        for line in handover_content.splitlines():
+            if line.strip().startswith(("#", "Key", "Finding", "Address", "Patch", "核心", "地址", "发现", "结论", "-")):
+                entry_lines.append(f"  {line}")
+    else:
+        entry_lines.append(f"- **Outcome**: All {len(data.get('history', []))} states successfully completed and verified.")
+
+    try:
+        with open(recipe_path, "a", encoding="utf-8") as f:
+            f.write("\n".join(entry_lines) + "\n")
+        print(f"\n🧠 \033[1;32m[Memory Crystallization]\033[0m Successfully archived macro recipe to:")
+        print(f"   \033[1;36mviking://memory/recipes/{archetype}.md\033[0m")
+    except Exception as e:
+        print(f"[Warning] Failed to archive recipe: {e}")
+
+
 def advance_state(runbook_path: str, next_state_override=None):
     data = load_runbook(runbook_path)
     curr_state = get_current_state(data)
@@ -222,6 +273,10 @@ def advance_state(runbook_path: str, next_state_override=None):
 
     print(f"\n🎉 [StateM] Successfully transitioned state:")
     print(f"   \033[1;31m{curr_state}\033[0m  ➡️   \033[1;32m{target_state}\033[0m\n")
+
+    # If reached terminal completed state, trigger automatic macro recipe distillation
+    if target_state == "completed":
+        _auto_archive_completed_recipe(runbook_path, data)
 
 
 def main():

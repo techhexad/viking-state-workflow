@@ -7,7 +7,7 @@
 
 [English](README.md) | [中文说明](README_CN.md)
 
-A long-horizon AI agent execution framework combining **[StateM](https://github.com/henryqin1997/statem)** (deterministic state machine & YAML runbooks), **[OpenViking](https://github.com/volcengine/OpenViking)** (hierarchical VFS context database by Volcengine), and **macOS Vision OCR** (zero-VRAM native UI text extraction) to prevent LLM context window overflow, eliminate OOM crashes, and enforce structured execution across AI agents.
+A long-horizon AI agent execution framework combining **[StateM](https://github.com/henryqin1997/statem)** (deterministic state machine & YAML runbooks), **[OpenViking](https://github.com/volcengine/OpenViking)** (hierarchical VFS context database by Volcengine), **Dual-Cycle Memory Crystallization** (progressive micro-memory & cross-task macro-recipe distillation), and **macOS Vision OCR** (zero-VRAM native UI text extraction) to prevent LLM context window overflow, eliminate OOM crashes, and enforce structured execution across AI agents.
 
 ---
 
@@ -15,6 +15,28 @@ A long-horizon AI agent execution framework combining **[StateM](https://github.
 
 - **[OpenViking](https://github.com/volcengine/OpenViking)** (`volcengine/OpenViking`): Open-source context database & virtual filesystem (`viking://`) designed for AI Agents.
 - **[StateM](https://github.com/henryqin1997/statem)** (`henryqin1997/statem`): Lightweight deterministic state machine engine for agent runbook execution.
+
+---
+
+## 🧠 Dual-Cycle Memory Crystallization & Continuous Evolution
+
+```
+                       ┌────────────────────────────────────────────────────────┐
+                       │  Cycle 1: Progressive Micro-Memory (Task-Local)        │
+                       │  - Every Gate transition persists verified facts to    │
+                       │    `HANDOVER.md` & `viking://` automatically           │
+                       │  - Subagent failures auto-inject negative constraints   │
+                       └───────────────────────────┬────────────────────────────┘
+                                                   │ Terminal `completed` trigger
+                                                   ▼
+                       ┌────────────────────────────────────────────────────────┐
+                       │  Cycle 2: Macro-Recipe Distillation (Cross-Task Global)│
+                       │  - On completion, distills macro success recipe to     │
+                       │    `viking://memory/recipes/<task_type>.md`            │
+                       │  - `workspace_init.py` auto-injects historical recipes  │
+                       │    into future projects from Day 1!                    │
+                       └────────────────────────────────────────────────────────┘
+```
 
 ---
 

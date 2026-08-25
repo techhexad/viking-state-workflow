@@ -7,7 +7,7 @@
 
 [English](README.md) | [中文说明](README_CN.md)
 
-**Viking State Workflow** 是专为 AI Agent（智能体）设计的长流程复杂任务执行框架。通过融合 **[StateM](https://github.com/henryqin1997/statem)**（确定性状态机与声明式 YAML Runbook）、**[OpenViking](https://github.com/volcengine/OpenViking)**（字节跳动火山引擎开源的分层 VFS 上下文数据库）以及 **macOS 原生 Vision OCR**（零显存文字识别），彻底杜绝大模型上下文爆炸、消除本地模型显存溢出（OOM）崩溃，并为多智能体提供结构化、可接力的执行体系。
+**Viking State Workflow** 是专为 AI Agent（智能体）设计的长流程复杂任务执行框架。通过融合 **[StateM](https://github.com/henryqin1997/statem)**（确定性状态机与声明式 YAML Runbook）、**[OpenViking](https://github.com/volcengine/OpenViking)**（字节跳动火山引擎开源的分层 VFS 上下文数据库）、**双周期范式自愈与沉淀闭环（Dual-Cycle Memory Crystallization）** 以及 **macOS 原生 Vision OCR**（零显存文字识别），彻底杜绝大模型上下文爆炸、消除本地模型显存溢出（OOM）崩溃，并为多智能体提供结构化、可接力的执行体系。
 
 ---
 
@@ -15,6 +15,26 @@
 
 - **[OpenViking](https://github.com/volcengine/OpenViking)** (`volcengine/OpenViking`)：专为 AI Agent 设计的开源分层上下文数据库与虚拟文件系统 (`viking://`)。
 - **[StateM](https://github.com/henryqin1997/statem)** (`henryqin1997/statem`)：用于驱动 Agent 执行声明式 Runbook 的轻量级确定性状态机引擎。
+
+---
+
+## 🧠 双周期记忆沉淀与跨任务进化 (Dual-Cycle Memory)
+
+```
+                       ┌────────────────────────────────────────────────────────┐
+                       │  周期 1：过程级微观沉淀 (Progressive Micro-Memory)      │
+                       │  - 状态机每个阶段 Gate 达成时，自动落盘事实至 HANDOVER.md│
+                       │  - 失败时监督器自动提炼负向约束，注入下一任子 Agent     │
+                       └───────────────────────────┬────────────────────────────┘
+                                                   │ 终态 completed 自动触发
+                                                   ▼
+                       ┌────────────────────────────────────────────────────────┐
+                       │  周期 2：任务级宏观范式升华 (Macro-Recipe Distillation)│
+                       │  - 任务完工瞬间自动提炼通用避坑指南并归档至 Viking       │
+                       │    `viking://memory/recipes/<task_type>.md`            │
+                       │  - 新项目执行 workspace_init.py 时自动读取并注入经验   │
+                       └────────────────────────────────────────────────────────┘
+```
 
 ---
 

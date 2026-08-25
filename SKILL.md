@@ -16,8 +16,11 @@ Long-running agent tasks (e.g., binary reverse engineering, large-scale code ref
 This skill decouples execution into specialized layers:
 1. **State Control Layer ([StateM](https://github.com/henryqin1997/statem))**: Enforces progress through explicit YAML runbooks, checkpoints, and gate checks.
 2. **Context & Memory Layer ([OpenViking](https://github.com/volcengine/OpenViking))**: Offloads heavy tool outputs to a virtual filesystem (`viking://`), providing progressive L0/L1 discovery and targeted snippet retrieval.
-3. **Zero-VRAM UI Inspection (macOS Vision OCR)**: Extracts text from UI screenshots in milliseconds via the Apple Neural Engine without requiring a multimodal vision LLM or eating image tokens.
-4. **Execution Agent (DSH, Hermes, OpenCode, Claude Code, etc.)**: Keeps active prompt context small (< 8,000 tokens) by executing sandboxed steps and interacting through CLI bridges.
+3. **Dual-Cycle Memory Crystallization (双周期范式自愈与沉淀)**:
+   - **Progressive Micro-Memory (过程级)**: Saves verified facts and negative constraints to `HANDOVER.md` on every state transition.
+   - **Macro-Recipe Distillation (宏观范式级)**: Automatically distills task success recipes upon reaching `completed`, archiving them to `viking://memory/recipes/<type>.md` and auto-injecting them into future projects via `workspace_init.py`!
+4. **Zero-VRAM UI Inspection (macOS Vision OCR)**: Extracts text from UI screenshots in milliseconds via the Apple Neural Engine without requiring a multimodal vision LLM or eating image tokens.
+5. **Execution Agent (DSH, Hermes, OpenCode, Claude Code, etc.)**: Keeps active prompt context small (< 8,000 tokens) by executing sandboxed steps and interacting through CLI bridges.
 
 ---
 
