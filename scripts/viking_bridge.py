@@ -17,6 +17,7 @@ import re
 OPENVIKING_HOST = os.environ.get("OPENVIKING_HOST", "http://127.0.0.1:8080")
 LOCAL_VFS_BACKUP = os.path.expanduser("~/.openviking/local_vfs")
 MAX_INLINE_LINES = int(os.environ.get("VIKING_MAX_INLINE_LINES", "40"))
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
 def _http_request(endpoint: str, method="GET", data=None):
@@ -62,7 +63,6 @@ def put_vfs(uri: str, content: str, tags=None):
         "tags": tags or []
     }
     res = _http_request("/api/v1/vfs/write", method="POST", data=payload)
-    # Always write to local backup as well
     local_path = _write_local_backup(uri, content)
     if "error" in res:
         print(f"[VFS] Saved to local fallback ({local_path}). Remote error: {res['error']}")
@@ -77,7 +77,6 @@ def get_vfs(uri: str):
     if "error" not in res and "content" in res:
         return res["content"]
     
-    # Check local fallback
     safe_rel = uri.replace("viking://", "").lstrip("/")
     target_path = os.path.join(LOCAL_VFS_BACKUP, safe_rel)
     if os.path.exists(target_path):
@@ -128,12 +127,10 @@ def run_command(cmd: str, dest_uri: str, max_lines=MAX_INLINE_LINES):
 
     lines = combined_output.splitlines()
     
-    # If output is concise, print directly
     if len(lines) <= max_lines:
         print(combined_output)
         return proc.returncode
 
-    # Otherwise, offload to OpenViking VFS
     put_vfs(dest_uri, combined_output, tags=["cmd_output", "auto_intercept"])
     
     print("\n" + "=" * 70)
@@ -154,6 +151,39 @@ def run_command(cmd: str, dest_uri: str, max_lines=MAX_INLINE_LINES):
     return proc.returncode
 
 
+def run_ocr(image_path: str, dest_uri: str = None):
+    """Run native macOS Vision OCR and optionally persist to OpenViking."""
+    if not os.path.exists(image_path):
+        print(f"[ERROR] Image not found: {image_path}")
+        return 1
+
+    swift_ocr_path = os.path.join(SCRIPT_DIR, "mac_ocr.swift")
+    if not os.path.exists(swift_ocr_path):
+        print(f"[ERROR] OCR script not found at {swift_ocr_path}")
+        return 1
+
+    proc = subprocess.run([swift_ocr_path, image_path], capture_output=True, text=True)
+    if proc.returncode != 0:
+        print(f"[ERROR] OCR failed: {proc.stderr}")
+        return proc.returncode
+
+    ocr_text = proc.stdout.strip()
+    if not ocr_text:
+        print(f"[OCR] No text recognized in {image_path}.")
+        return 0
+
+    print(f"\n🔍 [macOS Vision OCR Result for {os.path.basename(image_path)}]:")
+    print("-" * 50)
+    print(ocr_text)
+    print("-" * 50)
+
+    if dest_uri:
+        put_vfs(dest_uri, ocr_text, tags=["ocr_result", "ui_inspection"])
+        print(f"📍 OCR result also saved to {dest_uri}")
+
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(description="OpenViking Context & Memory Bridge")
     subparsers = parser.add_subparsers(dest="subcommand", required=True)
@@ -166,6 +196,11 @@ def main():
     run_parser.add_argument("--cmd", required=True, help="Shell command to run")
     run_parser.add_argument("--dest", required=True, help="Viking URI (e.g. viking://knowledge/disasm.asm)")
     run_parser.add_argument("--max-lines", type=int, default=MAX_INLINE_LINES, help="Max inline lines before offload")
+
+    # OCR
+    ocr_parser = subparsers.add_parser("ocr", help="Extract text from screenshot using native macOS Vision")
+    ocr_parser.add_argument("image", help="Path to image/screenshot file")
+    ocr_parser.add_argument("--dest", help="Optional Viking URI to store OCR text (e.g. viking://knowledge/ocr/ui.txt)")
 
     # Put
     put_parser = subparsers.add_parser("put", help="Upload a file or string to VFS")
@@ -188,6 +223,8 @@ def main():
         sys.exit(0 if ping() else 1)
     elif args.subcommand == "run":
         sys.exit(run_command(args.cmd, args.dest, args.max_lines))
+    elif args.subcommand == "ocr":
+        sys.exit(run_ocr(args.image, args.dest))
     elif args.subcommand == "put":
         if os.path.exists(args.file):
             with open(args.file, "r", encoding="utf-8", errors="replace") as f:

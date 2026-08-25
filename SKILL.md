@@ -1,10 +1,10 @@
 ---
 name: viking-state-workflow
 description: >-
-  Long-horizon agent execution framework combining StateM (state machine & runbooks) and OpenViking (VFS context database).
-  Use when running complex, multi-step, or long-running tasks across any AI agent (DSH, Hermes, OpenCode, Claude Code, Aider)
-  to prevent context window overflow (OOM / 400 Context Length Exceeded), enforce deterministic state transitions,
-  and automate session handovers with persistent memory.
+  Long-horizon agent execution framework combining StateM (state machine & runbooks), OpenViking (VFS context database),
+  and native macOS Vision OCR. Use when running complex, multi-step, or long-running tasks across any AI agent
+  (DSH, Hermes, OpenCode, Claude Code, Aider) to prevent context window overflow (OOM / 400 Context Length Exceeded),
+  enforce deterministic state transitions, inspect UI screenshots via zero-VRAM OCR, and automate session handovers.
 ---
 
 # Viking State Workflow (StateM + OpenViking + Multi-Agent)
@@ -13,10 +13,11 @@ description: >-
 
 Long-running agent tasks (e.g., binary reverse engineering, large-scale code refactoring, complex bug debugging) frequently suffer from **context window explosion** when tool outputs (such as `objdump`, compiler logs, OCR transcripts) are dumped linearly into the conversation.
 
-This skill decouples execution into three specialized layers:
+This skill decouples execution into specialized layers:
 1. **State Control Layer (StateM)**: Enforces progress through explicit YAML runbooks, checkpoints, and gate checks.
 2. **Context & Memory Layer (OpenViking)**: Offloads heavy tool outputs to a virtual filesystem (`viking://`), providing progressive L0/L1 discovery and targeted snippet retrieval.
-3. **Execution Agent (DSH, Hermes, OpenCode, Claude Code, etc.)**: Keeps active prompt context small (< 8,000 tokens) by executing sandboxed steps and interacting through CLI bridges.
+3. **Zero-VRAM UI Inspection (macOS Vision OCR)**: Extracts text from UI screenshots in milliseconds via the Apple Neural Engine without requiring a multimodal vision LLM or eating image tokens.
+4. **Execution Agent (DSH, Hermes, OpenCode, Claude Code, etc.)**: Keeps active prompt context small (< 8,000 tokens) by executing sandboxed steps and interacting through CLI bridges.
 
 ---
 
@@ -27,7 +28,8 @@ This skill decouples execution into three specialized layers:
 
 1. **State-First Progression**: Before executing any command, verify current state via `statem` or `statem_driver.py`.
 2. **Targeted Retrieval**: When analyzing data, retrieve only specific subtrees or symbols via `viking_bridge.py grep` or `search`.
-3. **Proactive Compaction & Handover**: If prompt token count approaches warning thresholds (> 24k tokens), invoke `session_compactor.py` to persist a structured distillation before restarting a clean child session.
+3. **UI State Inspection via Native OCR**: When verifying app UI or popup dialogues, run `viking_bridge.py ocr <screenshot.png>` to parse text directly without sending images into the LLM context.
+4. **Proactive Compaction & Handover**: If prompt token count approaches warning thresholds (> 24k tokens), invoke `session_compactor.py` to persist a structured distillation before restarting a clean child session.
 
 ---
 
@@ -91,14 +93,23 @@ python3 "<SKILL_DIR>/scripts/viking_bridge.py" grep \
   --context 15
 ```
 
-### Step 5: Gate Validation & State Transition
+### Step 5: UI Verification via Native OCR (No Vision Model Required)
+
+When verifying application state from screenshots or GUI windows:
+```bash
+python3 "<SKILL_DIR>/scripts/viking_bridge.py" ocr \
+  screenshot.png \
+  --dest "viking://knowledge/<project>/ocr/ui_status.txt"
+```
+
+### Step 6: Gate Validation & State Transition
 
 Once an operation succeeds (e.g. patch applied and verified):
 ```bash
 python3 "<SKILL_DIR>/scripts/statem_driver.py" --runbook runbook.yaml --advance --gate-check
 ```
 
-### Step 6: Session Snapshotting & Handover (On Context Limit)
+### Step 7: Session Snapshotting & Handover (On Context Limit)
 
 If the conversation history is growing too long:
 ```bash
@@ -118,6 +129,7 @@ The newly initialized session loads `session_distilled_state.md` and continues f
 | :--- | :--- |
 | `viking_bridge.py ping` | Health-check local OpenViking server |
 | `viking_bridge.py run --dest <uri> --cmd "<cmd>"` | Run command & redirect heavy output to VFS |
+| `viking_bridge.py ocr <image> [--dest <uri>]` | Extract text from screenshot via native macOS Vision |
 | `viking_bridge.py put <file> <uri>` | Push file into OpenViking VFS |
 | `viking_bridge.py grep --uri <uri> --pattern <str>` | Extract specific lines & context from VFS node |
 | `viking_bridge.py tree [uri]` | Browse VFS knowledge hierarchy |
