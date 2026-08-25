@@ -235,6 +235,25 @@ Here is an example showing how a user interacts naturally with an AI Agent acros
 
 ---
 
+### 🟢 Turn 5: Sequential Subagent Supervision & Auto-Healing (Multi-Agent Mode)
+> **👤 User**:
+> "Run the next phase in supervisor mode. Auto-retry on recoverable errors, and alert me only on fatal barriers."
+
+> **🤖 Agent (Main Supervisor)**:
+> "Started sequential supervisor:
+> ```bash
+> python3 scripts/statem_supervisor.py --runbook runbook.yaml --max-retries 3
+> ```
+> 
+> 🔄 **Execution Trace & Self-Healing Loop**:
+> 1. 🚀 **[Attempt 1/3] Dispatched Subagent-1** to apply patch at `0x51da68` ➔ App crashed on launch with `SIGILL (EXC_BAD_INSTRUCTION)`.
+> 2. 🔍 **Supervisor Error Classification**: Categorized as **`RECOVERABLE` (Illegal instruction BRK#0 written)**.
+> 3. 🧠 **Feedback Injection**: Extracted crash trace into negative constraint: *“Avoid BRK instructions; use true NOP (1F 20 03 D5).”*
+> 4. 🚀 **[Attempt 2/3] Auto-respawned Subagent-2** with updated constraints ➔ Re-calculated patch bytes ➔ App launched cleanly and passed Gate!
+> 5. ✅ **Supervisor Transition**: Automatically ran `statem_driver.py --advance` to proceed to the next phase!"
+
+---
+
 ## 🛡️ Dual-Layer Context Overflow Prevention
 
 1. **Layer 1: Cognitive Redlines (`SKILL.md`)**: Strict prohibition against raw dumping of `lldb`, `objdump`, `otool`, `strings`, or long test traces directly to stdout.

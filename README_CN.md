@@ -236,6 +236,25 @@ python3 scripts/session_compactor.py \
 
 ---
 
+### 🟢 第 5 轮：串行 Subagent 监督模式与智能自愈 (Multi-Agent Supervisor Mode)
+> **👤 用户**：
+> “开启监督模式跑下一个阶段，遇到错误如果可自愈就自动重试，致命错误再叫我。”
+
+> **🤖 Agent (主控 Supervisor)**：
+> “已启动串行监督器：
+> ```bash
+> python3 scripts/statem_supervisor.py --runbook runbook.yaml --max-retries 3
+> ```
+> 
+> 🔄 **执行轨迹与自愈过程**：
+> 1. 🚀 **[Attempt 1/3] 派发 Subagent-1** 尝试对 `0x51da68` 打入补丁 ➔ 测试启动发生崩溃：`SIGILL (EXC_BAD_INSTRUCTION)`；
+> 2. 🔍 **主控错误分类**：判定为 **`RECOVERABLE`（可自愈逻辑错误：写错了非法指令 BRK#0）**；
+> 3. 🧠 **经验注入**：主控自动将失败堆栈提炼为负向约束：*“禁止使用 BRK 指令，需使用真 NOP (1F 20 03 D5)”*；
+> 4. 🚀 **[Attempt 2/3] 自动重建 Subagent-2** 接收新约束并重新计算机器码 ➔ 测试启动成功，通过 Gate 门禁！
+> 5. ✅ **主控自动推进**：调用 `statem_driver.py --advance` 进入下一阶段！”
+
+---
+
 ## 🛡️ 双层上下文防爆防御体系
 
 1. **第一层：认知与规范红线 (`SKILL.md`)**：最高安全红线，严禁裸跑 `lldb`、`objdump`、`otool`、`strings` 或超长测试追踪日志。
