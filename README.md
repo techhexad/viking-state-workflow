@@ -66,6 +66,7 @@ viking-state-workflow/
 │   ├── workspace_init.py             # Universal project & runbook synthesizer for any task type
 │   ├── viking_bridge.py              # OpenViking VFS client, pre-flight doctor & capture-ocr automation
 │   ├── statem_driver.py              # Zero-dependency StateM state machine engine
+│   ├── statem_supervisor.py          # Sequential subagent supervisor & error classification engine
 │   ├── session_compactor.py          # Session state distillation & handover compactor
 │   ├── mac_ocr.swift                 # Native macOS Vision OCR extractor (Zero dependencies / VRAM)
 │   ├── viking_env.sh                 # Environment activation script for transparent shims

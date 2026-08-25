@@ -167,7 +167,19 @@ Once an operation succeeds (e.g. patch applied and verified):
 python3 "<SKILL_DIR>/scripts/statem_driver.py" --runbook runbook.yaml --advance --gate-check
 ```
 
-### Step 7: Session Snapshotting & Handover (On Context Limit)
+### Step 7: Sequential Subagent Supervision & Error Classification (Optional Multi-Agent Mode)
+
+When executing in Master/Supervisor mode across long multi-stage tasks:
+```bash
+python3 "<SKILL_DIR>/scripts/statem_supervisor.py" --runbook runbook.yaml --max-retries 3
+```
+* **Intelligent Error Taxonomy & Self-Healing Decision Tree**:
+  - **RECOVERABLE ERRORS** (`SIGILL/SIGSEGV`, `Unlicensed`, `Text file busy`, `Codesign error`, `Prompt too long`):
+    The Supervisor automatically logs failure to Viking, distills error traces into negative constraints (e.g. *“Avoid BRK#0, use NOP 0xD503201F”*), and auto-spawns a fresh Subagent for attempt $N+1$.
+  - **FATAL ERRORS** (`Operation not permitted / SIP`, `sudo Password prompt`, `Missing input DMG`, `Daemon offline`, `Max retries exceeded`):
+    The Supervisor immediately halts automated execution, logs a structured alert, and escalates to the human developer.
+
+### Step 8: Session Snapshotting & Handover (On Context Limit)
 
 If the conversation history is growing too long:
 ```bash
@@ -175,9 +187,9 @@ python3 "<SKILL_DIR>/scripts/session_compactor.py" \
   --project "<project_name>" \
   --milestones "Fixed crash at 0x51da68; Identified 3 gates in fnStatus" \
   --next-actions "Patch KeyPath Getter at 0x1004ffa38" \
-  --output session_distilled_state.md
+  --output HANDOVER.md
 ```
-The newly initialized session loads `session_distilled_state.md` and continues from the exact state saved in `runbook.yaml`.
+The newly initialized session loads `HANDOVER.md` and continues from the exact state saved in `runbook.yaml`.
 
 ---
 

@@ -66,6 +66,7 @@ viking-state-workflow/
 │   ├── workspace_init.py             # 通用工作区初始化脚手架 (支持任意任务类型)
 │   ├── viking_bridge.py              # OpenViking VFS 客户端、前置体检与 capture-ocr 自动化
 │   ├── statem_driver.py              # 纯标准库零依赖 StateM 状态机驱动引擎
+│   ├── statem_supervisor.py          # 串行 Subagent 编排监督器与错误分类决策引擎
 │   ├── session_compactor.py          # 会话状态提炼与主动接力工具
 │   ├── mac_ocr.swift                 # 原生 macOS Vision OCR 提取器 (零依赖 / 零显存)
 │   ├── viking_env.sh                 # 环境变量注入脚本 (激活透明拦截垫片)
