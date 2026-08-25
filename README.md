@@ -52,10 +52,13 @@ viking-state-workflow/
 ├── README.md                         # Project documentation
 ├── LICENSE                           # Apache-2.0 License
 ├── scripts/
-│   ├── mac_ocr.swift                 # Native macOS Vision OCR extractor (Zero dependencies / VRAM)
-│   ├── viking_bridge.py              # OpenViking VFS client & command output interceptor
+│   ├── workspace_init.py             # Universal project & runbook synthesizer for any task type
+│   ├── viking_bridge.py              # OpenViking VFS client, pre-flight doctor & capture-ocr automation
 │   ├── statem_driver.py              # Zero-dependency StateM state machine engine
-│   └── session_compactor.py          # Session state distillation & handover compactor
+│   ├── session_compactor.py          # Session state distillation & handover compactor
+│   ├── mac_ocr.swift                 # Native macOS Vision OCR extractor (Zero dependencies / VRAM)
+│   ├── viking_env.sh                 # Environment activation script for transparent shims
+│   └── bin/                          # Transparent physical shims (lldb, objdump, otool)
 └── templates/
     ├── runbook_template.yaml         # Production-ready YAML runbook template
     └── ov.conf.template              # OpenViking configuration template
@@ -63,25 +66,25 @@ viking-state-workflow/
 
 ---
 
-## 🚀 Quick Start
+## 🚀 Quick Start & SOP
 
-### 1. Prerequisites
-- macOS 12+ (for native Apple Vision OCR support)
-- Python 3.9+
-- OpenViking daemon running locally (optional, built-in fallback directory is enabled if server is offline).
-
-### 2. Verify OpenViking Connection
+### 1. Pre-flight Doctor Check (Mandatory First Step)
+Automatically verify OpenViking server availability, auth keys, and port alignment (e.g. 1933):
 ```bash
-python3 scripts/viking_bridge.py ping
+python3 scripts/viking_bridge.py doctor
 ```
 
-### 3. Initialize Task Runbook
-Copy the runbook template into your workspace:
+### 2. Auto-Synthesize New Project Workspace
+Synthesize a customized `AGENTS.md` and tailored `runbook.yaml` for any task type:
 ```bash
-cp templates/runbook_template.yaml runbook.yaml
+python3 scripts/workspace_init.py \
+  --project "<my_project>" \
+  --type "reverse_engineering|code_refactor|deep_debugging|general_long_task" \
+  --prompt "<task_description>" \
+  --dir "."
 ```
 
-Check current phase & gates:
+### 3. Check State & Phase Gates
 ```bash
 python3 scripts/statem_driver.py --status
 ```
@@ -95,21 +98,23 @@ python3 scripts/viking_bridge.py run \
 ```
 *The command returns an L0 preview + line count, saving the full body into OpenViking.*
 
-### 5. Extract UI Text via Native OCR (No Vision Model Needed)
-When verifying GUI popups, settings screens, or error dialogs:
-```bash
-python3 scripts/viking_bridge.py ocr \
-  screenshot.png \
-  --dest "viking://knowledge/myproject/ocr/ui.txt"
-```
-
-### 6. Inspect Code Snippets On-Demand
+### 5. Inspect Code Snippets On-Demand
 Query specific functions or addresses without pulling the entire file into context:
 ```bash
 python3 scripts/viking_bridge.py grep \
   --uri "viking://knowledge/myproject/disasm.asm" \
-  --pattern "fnStatus" \
-  --context 10
+  --pattern "my_target_symbol" \
+  --context 15
+```
+
+### 6. All-in-One GUI Verification & Vision OCR (Zero-VRAM)
+Auto-activate application, elevate window to front, open settings, capture screenshot, and run native macOS Vision OCR:
+```bash
+python3 scripts/viking_bridge.py capture-ocr \
+  --app "work/MyApp.app" \
+  --dest "viking://knowledge/myproject/ocr/ui.txt" \
+  --ask-user \
+  --timeout 600
 ```
 
 ### 7. Advance State & Checkpoint
@@ -119,14 +124,22 @@ python3 scripts/statem_driver.py --advance
 ```
 
 ### 8. Distill Session & Handover
-When conversation history grows too long, distill discoveries into a compact report (< 500 tokens):
+When conversation history grows long (> 20k tokens), distill discoveries into a compact report (< 500 tokens):
 ```bash
 python3 scripts/session_compactor.py \
   --project "myproject" \
-  --milestones "Fixed crash at 0x51da68; Identified 3 gates in fnStatus" \
-  --next-actions "Patch KeyPath Getter at 0x1004ffa38" \
-  --output session_distilled_state.md
+  --milestones "Milestone 1 completed; Gate 2 verified" \
+  --discoveries "Address 0x1004ffa38 locked; NOP is 1F 20 03 D5" \
+  --next-actions "Apply 4-byte patch and codesign" \
+  --output HANDOVER.md
 ```
+
+---
+
+## 🛡️ Dual-Layer Context Overflow Prevention
+
+1. **Layer 1: Cognitive Redlines (`SKILL.md`)**: Strict prohibition against raw dumping of `lldb`, `objdump`, `otool`, `strings`, or long test traces directly to stdout.
+2. **Layer 2: Physical Shims (`scripts/bin/`)**: Transparent command wrappers intercept raw binary invocations and auto-pipe outputs exceeding 40 lines into OpenViking.
 
 ---
 

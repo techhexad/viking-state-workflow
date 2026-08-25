@@ -173,8 +173,8 @@ def get_vfs(uri: str):
 
 def grep_vfs(uri: str, pattern: str, context_lines=5):
     content = get_vfs(uri)
-    if content.startswith("[ERROR]"):
-        print(content)
+    if not content or content.startswith("[ERROR]"):
+        print(content or f"[ERROR] Empty content in {uri}")
         return
 
     lines = content.splitlines()

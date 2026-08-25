@@ -96,15 +96,55 @@ def load_runbook(path: str):
         return _parse_simple_yaml(content)
 
 
+def _simple_yaml_dump(data: dict) -> str:
+    lines = [
+        "version: '1.0'",
+        f"task_name: {data.get('task_name', data.get('name', 'unnamed_task'))}",
+        f"description: \"{data.get('description', '')}\"",
+        f"initial_state: {data.get('initial_state', 'init')}",
+        f"current_state: {data.get('current_state', 'init')}",
+        "states:"
+    ]
+    states = data.get("states", {})
+    if isinstance(states, dict):
+        for s_id, s_info in states.items():
+            if not isinstance(s_info, dict):
+                continue
+            lines.append(f"  {s_id}:")
+            lines.append(f"    name: {s_info.get('name', s_id)}")
+            lines.append(f"    description: \"{s_info.get('description', '')}\"")
+            if "gate" in s_info:
+                lines.append(f"    gate: \"{s_info['gate']}\"")
+            if "gates" in s_info and isinstance(s_info["gates"], list):
+                lines.append("    gates:")
+                for g in s_info["gates"]:
+                    lines.append(f"      - \"{g}\"")
+            trans = s_info.get("transition", {})
+            if isinstance(trans, dict):
+                lines.append("    transition:")
+                for tk, tv in trans.items():
+                    lines.append(f"      {tk}: {tv}")
+
+    history = data.get("history", [])
+    if history and isinstance(history, list):
+        lines.append("history:")
+        for h in history:
+            lines.append(f"  - from_state: {h.get('from_state')}")
+            lines.append(f"    to_state: {h.get('to_state')}")
+            lines.append(f"    timestamp: \"{h.get('timestamp')}\"")
+
+    return "\n".join(lines) + "\n"
+
+
 def save_runbook(path: str, data: dict):
     with open(path, "w", encoding="utf-8") as f:
         if HAS_YAML:
-            yaml.safe_dump(data, f, sort_keys=False, allow_unicode=True)
-        elif path.endswith(".json"):
-            json.dump(data, f, indent=2, ensure_ascii=False)
-        else:
-            # Save as JSON-formatted if PyYAML is missing
-            json.dump(data, f, indent=2, ensure_ascii=False)
+            try:
+                yaml.safe_dump(data, f, sort_keys=False, allow_unicode=True)
+                return
+            except Exception:
+                pass
+        f.write(_simple_yaml_dump(data))
 
 
 def get_current_state(data: dict):

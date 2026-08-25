@@ -62,10 +62,22 @@ def distill(project: str, current_state: str, milestones: list, discoveries: lis
     return output_file
 
 
+def auto_detect_state(runbook_path="runbook.yaml") -> str:
+    if os.path.exists(runbook_path):
+        try:
+            with open(runbook_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    if line.strip().startswith("current_state:"):
+                        return line.split(":", 1)[1].strip().strip('"').strip("'")
+        except Exception:
+            pass
+    return "in_progress"
+
+
 def main():
     parser = argparse.ArgumentParser(description="Session State Distillation Tool")
     parser.add_argument("--project", default="general-task", help="Project name")
-    parser.add_argument("--state", default="in_progress", help="Current StateM state")
+    parser.add_argument("--state", help="Current StateM state (auto-detected if omitted)")
     parser.add_argument("--milestones", help="Semicolon-separated completed milestones")
     parser.add_argument("--discoveries", help="Semicolon-separated technical discoveries")
     parser.add_argument("--next-actions", help="Semicolon-separated immediate next steps")
@@ -73,11 +85,12 @@ def main():
 
     args = parser.parse_args()
 
+    state = args.state or auto_detect_state()
     m_list = [m.strip() for m in args.milestones.split(";")] if args.milestones else []
     d_list = [d.strip() for d in args.discoveries.split(";")] if args.discoveries else []
     n_list = [n.strip() for n in args.next_actions.split(";")] if args.next_actions else []
 
-    distill(args.project, args.state, m_list, d_list, n_list, args.output)
+    distill(args.project, state, m_list, d_list, n_list, args.output)
 
 
 if __name__ == "__main__":
