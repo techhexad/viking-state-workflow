@@ -2,7 +2,7 @@
 """
 Viking Bridge (viking_bridge.py)
 A lightweight CLI & Python client for OpenViking context offloading and retrieval.
-Features dynamic config auto-discovery and pre-flight doctor diagnostics.
+Features dynamic config auto-discovery, pre-flight doctor diagnostics, and auto-process lifecycle management.
 """
 
 import sys
@@ -27,7 +27,6 @@ def _auto_discover_config():
     account = "default"
     user = "admin"
 
-    # 1. Read ov.conf for server port and host
     ov_conf_path = os.path.expanduser("~/.openviking/ov.conf")
     if not host and os.path.exists(ov_conf_path):
         try:
@@ -45,7 +44,6 @@ def _auto_discover_config():
     if not host:
         host = "http://127.0.0.1:1933"
 
-    # 2. Read active ovcli.conf for user_key and account/user
     ovcli_conf_path = os.path.expanduser("~/.openviking/ovcli.conf")
     if os.path.exists(ovcli_conf_path):
         try:
@@ -107,7 +105,6 @@ def doctor():
     print(f"🔑 Auth User Key              : {'[Configured]' if OPENVIKING_KEY else '[MISSING ❌]'}")
     print(f"👤 Account / User Context     : {VIKING_ACCOUNT} / {VIKING_USER}")
 
-    # 1. Check Server Health
     res = _http_request("/health")
     if "error" in res or not res.get("healthy"):
         print(f"\n❌ [ERROR] OpenViking server is NOT reachable at {OPENVIKING_HOST}!")
@@ -119,13 +116,11 @@ def doctor():
 
     print(f"✅ Server Status               : Healthy (v{res.get('version', 'unknown')})")
 
-    # 2. Check Auth Key Validity
     if not OPENVIKING_KEY:
         print("\n⚠️  [WARNING] User API Key is missing. Tenant APIs will be rejected.")
         print("   Please configure user key via: ov config add ...")
         return False
 
-    # 3. Check VFS Connectivity
     fs_test = _http_request("/api/v1/content/read", method="POST", data={"uri": "viking://resources"})
     if "error" in fs_test and "HTTP 401" in fs_test["error"]:
         print(f"\n❌ [AUTH ERROR] User API Key failed validation: {fs_test['error']}")
@@ -266,12 +261,21 @@ def run_ocr(image_path: str, dest_uri: str = None):
     return 0
 
 
-def capture_and_ocr(app_path: str, open_settings=True, dest_uri: str = None, screenshot_path="/tmp/viking_ui_capture.png"):
+def capture_and_ocr(app_path: str, open_settings=True, dest_uri: str = None, screenshot_path="/tmp/viking_ui_capture.png", auto_kill=True):
+    """Auto-manage lifecycle: clean stale instance -> activate -> trigger settings -> screenshot & OCR -> auto teardown."""
     app_name = os.path.basename(app_path).replace(".app", "")
-    print(f"[AUTO-UI] Activating {app_path} ...")
-    subprocess.run(["open", "-a", app_path], check=False)
-    time.sleep(1.2)
+    
+    # 1. Pre-clean: Kill any stale running instance
+    print(f"[AUTO-UI] Pre-cleaning existing '{app_name}' instances...")
+    subprocess.run(["pkill", "-9", "-f", app_name], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    time.sleep(0.5)
 
+    # 2. Launch fresh instance
+    print(f"[AUTO-UI] Launching fresh instance of {app_path} ...")
+    subprocess.run(["open", "-a", app_path], check=False)
+    time.sleep(1.5)
+
+    # 3. Trigger settings
     if open_settings:
         print(f"[AUTO-UI] Opening Settings (Cmd+,) via AppleScript ...")
         as_script = f'''
@@ -284,11 +288,20 @@ def capture_and_ocr(app_path: str, open_settings=True, dest_uri: str = None, scr
         '''
         subprocess.run(["osascript", "-e", as_script], check=False)
 
+    # 4. Capture screenshot
     print(f"[AUTO-UI] Capturing screen to {screenshot_path} ...")
     subprocess.run(["screencapture", "-x", screenshot_path], check=False)
     time.sleep(0.5)
 
-    return run_ocr(screenshot_path, dest_uri)
+    # 5. Run OCR
+    ocr_res = run_ocr(screenshot_path, dest_uri)
+
+    # 6. Auto-Teardown if requested (prevent locking binary file)
+    if auto_kill:
+        print(f"[AUTO-UI] Auto-terminating '{app_name}' process to release file locks...")
+        subprocess.run(["pkill", "-9", "-f", app_name], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    return ocr_res
 
 
 def main():
@@ -318,6 +331,7 @@ def main():
     cap_parser.add_argument("--no-settings", action="store_true", help="Do not trigger Cmd+, settings shortcut")
     cap_parser.add_argument("--dest", help="Optional Viking URI to store OCR text")
     cap_parser.add_argument("--output-png", default="/tmp/viking_ui_capture.png", help="Temporary screenshot path")
+    cap_parser.add_argument("--keep-running", action="store_true", help="Do not auto-terminate app after OCR")
 
     # Put
     put_parser = subparsers.add_parser("put", help="Upload a file or string to VFS")
@@ -345,7 +359,7 @@ def main():
     elif args.subcommand == "ocr":
         sys.exit(run_ocr(args.image, args.dest))
     elif args.subcommand == "capture-ocr":
-        sys.exit(capture_and_ocr(args.app, not args.no_settings, args.dest, args.output_png))
+        sys.exit(capture_and_ocr(args.app, not args.no_settings, args.dest, args.output_png, not args.keep_running))
     elif args.subcommand == "put":
         if os.path.exists(args.file):
             with open(args.file, "r", encoding="utf-8", errors="replace") as f:
