@@ -43,7 +43,7 @@ This skill decouples execution into specialized layers:
 
 > [!IMPORTANT]
 > ### ⚡ 零门槛自动接管原则 (Zero-Friction Auto-Bootstrap)
-> 当用户在首轮对话中仅提供简短意图（例如：“*使用 viking-state-workflow 技能开始一个新任务：[描述任务目标]*”），Agent **绝对不需要用户手动指导环境配置或逐步下达命令**，Agent **必须全自动依次执行以下 4 步标准初始化闭环**：
+> 当用户在首轮对话中仅提供简短意图（例如：“*使用 viking-state-workflow [标准/监督模式] 开始一个新任务：[描述任务目标]*”），Agent **绝对不需要用户手动指导环境配置或逐步下达命令**，Agent **必须全自动依次执行以下 4 步标准初始化闭环**：
 > 
 > 1. **自动执行 Doctor 体检**：调用 `python3 <SKILL_DIR>/scripts/viking_bridge.py doctor` 确认服务端与鉴权状态；
 > 2. **自动分析任务类型并合成工作区配置**：
@@ -57,7 +57,9 @@ This skill decouples execution into specialized layers:
 >        --dir "."
 >      ```
 >      一秒为用户生成专属的 `AGENTS.md` 与状态机 `runbook.yaml`；
-> 3. **自动展示状态机起点**：调用 `python3 <SKILL_DIR>/scripts/statem_driver.py --status` 确认第一阶段目标与 Gate 条件；
+> 3. **自动选择运行模式**：
+>    - **监督模式 (Supervisor Mode)**：若用户指令包含“监督模式 / auto-heal / 自动重试”，主控 Agent 直接以 `python3 <SKILL_DIR>/scripts/statem_supervisor.py --max-retries 3` 启动串行子智能体自愈流；
+>    - **标准单 Agent 模式**：调用 `python3 <SKILL_DIR>/scripts/statem_driver.py --status` 确认第一阶段目标；
 > 4. **自动启动第一阶段工作**：无缝直接开始执行阶段 1 的具体操作，并向用户汇报阶段性进展！
 
 ---

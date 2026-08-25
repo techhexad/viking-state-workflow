@@ -173,24 +173,39 @@ python3 scripts/session_compactor.py \
 
 ---
 
-## 💬 端到端对话实战示例 (Conversational Dialogue Walkthrough)
+## 💬 自然语言对话实战场景 (Conversational Scenarios)
 
-以下展示用户如何通过**自然语言对话**与 AI Agent 协作完成整个任务全生命周期：
-
-### 🟢 第 1 轮：任务发起与零门槛自动引导
-> **👤 用户**：
-> “使用 `viking-state-workflow` 技能开始一个新任务：逆向分析 `TargetApp.dmg` 的 Pro 功能并编写补丁。”
-
-> **🤖 Agent**：
-> “收到！检测到长任务请求，正在自动执行初始化闭环：
-> 1. ✅ **环境体检**：已运行 `viking_bridge.py doctor`，OpenViking（端口 1933）与鉴权连接正常；
-> 2. ✅ **工作区脚手架**：识别为 `reverse_engineering` 任务，已为你生成 `AGENTS.md` 与 5 阶段 `runbook.yaml`；
-> 3. 🎯 **当前阶段**：`unpack_and_extract`（解包与提取主二进制）。
-> 正在开始第一阶段工作……”
+用户可以通过**日常自然语言**与 AI Agent 协作，在任务初始或任意阶段灵活调用各项能力：
 
 ---
 
-### 🟢 第 2 轮：执行重型命令与代码切片检索
+### 🌟 场景 1：任务初始化（支持直接开启“标准模式”或“监督自愈模式”）
+
+#### A. 标准全自动初始化：
+> **👤 用户**：
+> “使用 `viking-state-workflow` 开始一个新任务：把电商系统的底层 ORM 从 GORM 重构迁移到 Ent。”
+
+> **🤖 Agent**：
+> “收到！正在自动执行初始化闭环：
+> 1. ✅ **环境体检**：`viking_bridge.py doctor` 检查通过，OpenViking 在线；
+> 2. ✅ **工作区合成**：已识别为 `code_refactor` 任务，生成定制版 `AGENTS.md` 与 5 阶段 `runbook.yaml`；
+> 3. 🎯 **起点阶段**：`dependency_audit`（扫描模块调用与依赖）。
+> 正在开始第一阶段工作……”
+
+#### B. 一句话直接开启「监督自愈模式」：
+> **👤 用户**：
+> “使用 `viking-state-workflow` **监督模式**开始新任务：逆向分析 `TargetApp.dmg` 的 Pro 授权，每个阶段失败最多自动重建 3 次重试。”
+
+> **🤖 Agent**：
+> “已自动完成体检并生成工作区！正在以**串行监督器模式**接管执行：
+> ```bash
+> python3 scripts/statem_supervisor.py --runbook runbook.yaml --max-retries 3
+> ```
+> 阶段任务将由轻量串行 Subagent 执行，若遇逻辑/补丁崩溃将自动注入经验重试，遇到系统权限等致命错误将自动停机求助。”
+
+---
+
+### 🔍 场景 2：重型命令外挂与代码切片检索
 > **👤 用户**：
 > “反汇编生成了吗？帮我检索下关于 `fnStatus` 和 Pro 门控判断的关键代码。”
 
@@ -206,7 +221,7 @@ python3 scripts/session_compactor.py \
 
 ---
 
-### 🟢 第 3 轮：GUI 界面自动化验证与人机协同
+### 🖥️ 场景 3：GUI 界面自动化验证与人机协同
 > **👤 用户**：
 > “补丁打好了，启动 App 验证一下 UI 激活状态。验证时提示我核验，等待我 3 分钟。”
 
@@ -224,7 +239,18 @@ python3 scripts/session_compactor.py \
 
 ---
 
-### 🟢 第 4 轮：主动会话接力（换新会话满血复活）
+### 🔄 场景 4：串行 Subagent 自动容错自愈实况
+> **🤖 Agent (主控 Supervisor 自动播报)**：
+> “在当前阶段执行过程中捕获到异常，正在自动自愈：
+> 1. 🚀 **[Attempt 1/3] Subagent-1** 尝试对 `0x51da68` 打入补丁 ➔ 测试启动发生崩溃：`SIGILL (EXC_BAD_INSTRUCTION)`；
+> 2. 🔍 **主控错误分类**：判定为 **`RECOVERABLE`（可自愈逻辑错误：写错了非法指令 BRK#0）**；
+> 3. 🧠 **经验注入**：主控自动将失败堆栈提炼为负向约束：*“禁止使用 BRK 指令，需使用真 NOP (1F 20 03 D5)”*；
+> 4. 🚀 **[Attempt 2/3] 自动重建 Subagent-2** 接收新约束并重新计算机器码 ➔ 测试启动成功，通过 Gate 门禁！
+> 5. ✅ **主控自动推进**：调用 `statem_driver.py --advance` 进入下一阶段！”
+
+---
+
+### 📦 场景 5：主动会话接力（换新会话满血复活）
 > **👤 用户**：
 > “当前会话 Token 已经 2 万多了，做一下存盘，我们开新会话继续打包。”
 
@@ -233,25 +259,6 @@ python3 scripts/session_compactor.py \
 > 📊 当前上下文已压缩为 400 Token。请在 DSH 中开启一个 **New Chat（新会话）**，并在首轮发送：
 > > *‘请读取 AGENTS.md 和 HANDOVER.md，继续执行 package_delivery 阶段。’*
 > 新会话将以极轻量上下文满血继续接力！”
-
----
-
-### 🟢 第 5 轮：串行 Subagent 监督模式与智能自愈 (Multi-Agent Supervisor Mode)
-> **👤 用户**：
-> “开启监督模式跑下一个阶段，遇到错误如果可自愈就自动重试，致命错误再叫我。”
-
-> **🤖 Agent (主控 Supervisor)**：
-> “已启动串行监督器：
-> ```bash
-> python3 scripts/statem_supervisor.py --runbook runbook.yaml --max-retries 3
-> ```
-> 
-> 🔄 **执行轨迹与自愈过程**：
-> 1. 🚀 **[Attempt 1/3] 派发 Subagent-1** 尝试对 `0x51da68` 打入补丁 ➔ 测试启动发生崩溃：`SIGILL (EXC_BAD_INSTRUCTION)`；
-> 2. 🔍 **主控错误分类**：判定为 **`RECOVERABLE`（可自愈逻辑错误：写错了非法指令 BRK#0）**；
-> 3. 🧠 **经验注入**：主控自动将失败堆栈提炼为负向约束：*“禁止使用 BRK 指令，需使用真 NOP (1F 20 03 D5)”*；
-> 4. 🚀 **[Attempt 2/3] 自动重建 Subagent-2** 接收新约束并重新计算机器码 ➔ 测试启动成功，通过 Gate 门禁！
-> 5. ✅ **主控自动推进**：调用 `statem_driver.py --advance` 进入下一阶段！”
 
 ---
 

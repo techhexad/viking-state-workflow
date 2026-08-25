@@ -172,24 +172,39 @@ Load `HANDOVER.md` in a fresh session (Clean New Chat) to resume at full speed!
 
 ---
 
-## 💬 End-to-End Conversational Dialogue Walkthrough
+## 💬 Conversational Interaction Scenarios
 
-Here is an example showing how a user interacts naturally with an AI Agent across the full lifecycle:
-
-### 🟢 Turn 1: Task Initialization & Zero-Friction Bootstrap
-> **👤 User**:
-> "Use `viking-state-workflow` skill to start a new task: Reverse engineer `TargetApp.dmg` to analyze Pro features and craft a working patch."
-
-> **🤖 Agent**:
-> "Understood! Long-horizon task detected. Autonomously executing initialization loop:
-> 1. ✅ **Pre-flight Health**: Ran `viking_bridge.py doctor` — OpenViking (Port 1933) and auth keys verified.
-> 2. ✅ **Workspace Scaffold**: Identified as `reverse_engineering` archetype; generated `AGENTS.md` and 5-phase `runbook.yaml`.
-> 3. 🎯 **Initial Phase**: `unpack_and_extract` (Extract app and thin binaries).
-> Starting Phase 1 execution now..."
+Users can naturally interact with AI Agents using everyday natural language, activating different capabilities at task initialization or during execution:
 
 ---
 
-### 🟢 Turn 2: Heavy Command Execution & Code Snippet Retrieval
+### 🌟 Scenario 1: Task Initialization (Standard Mode or Supervisor Mode)
+
+#### A. Standard Autonomous Initialization:
+> **👤 User**:
+> "Use `viking-state-workflow` to start a new task: Refactor the ecommerce ORM layer from GORM to Ent."
+
+> **🤖 Agent**:
+> "Understood! Autonomously executing initialization loop:
+> 1. ✅ **Pre-flight Health**: `viking_bridge.py doctor` verified, OpenViking online.
+> 2. ✅ **Workspace Scaffold**: Identified as `code_refactor` archetype; generated tailored `AGENTS.md` and 5-phase `runbook.yaml`.
+> 3. 🎯 **Initial Phase**: `dependency_audit` (Scan module boundaries and call sites).
+> Starting Phase 1 execution now..."
+
+#### B. Direct Activation of "Supervisor Auto-Healing Mode":
+> **👤 User**:
+> "Start a new task in **supervisor mode** with `viking-state-workflow`: Reverse engineer `TargetApp.dmg` Pro checks, auto-rebuilding subagents up to 3 retries on failure."
+
+> **🤖 Agent**:
+> "Pre-flight check passed and workspace scaffolded! Taking over in **Sequential Supervisor Mode**:
+> ```bash
+> python3 scripts/statem_supervisor.py --runbook runbook.yaml --max-retries 3
+> ```
+> Each phase will be executed by dedicated lightweight Subagents. Logic/crash failures will be auto-healed with negative constraints, while fatal barriers will instantly pause for human assistance."
+
+---
+
+### 🔍 Scenario 2: Heavy Command Offload & Code Snippet Retrieval
 > **👤 User**:
 > "Is disassembly ready? Search for critical Pro check logic around `fnStatus`."
 
@@ -205,7 +220,7 @@ Here is an example showing how a user interacts naturally with an AI Agent acros
 
 ---
 
-### 🟢 Turn 3: Automated GUI Verification & Human Confirmation
+### 🖥️ Scenario 3: Automated GUI Verification & Human Confirmation
 > **👤 User**:
 > "Patch is applied. Launch the app to verify UI status. Prompt me for manual check and wait 3 minutes."
 
@@ -223,7 +238,18 @@ Here is an example showing how a user interacts naturally with an AI Agent acros
 
 ---
 
-### 🟢 Turn 4: Proactive Session Compaction & Clean Restart
+### 🔄 Scenario 4: Sequential Subagent Auto-Healing in Action
+> **🤖 Agent (Main Supervisor Live Log)**:
+> "Captured an error during current phase execution, auto-healing in progress:
+> 1. 🚀 **[Attempt 1/3] Subagent-1** attempted patch at `0x51da68` ➔ App crashed with `SIGILL (EXC_BAD_INSTRUCTION)`.
+> 2. 🔍 **Supervisor Error Classification**: Categorized as **`RECOVERABLE` (Illegal instruction BRK#0 written)**.
+> 3. 🧠 **Feedback Injection**: Extracted crash trace into negative constraint: *“Avoid BRK instructions; use true NOP (1F 20 03 D5).”*
+> 4. 🚀 **[Attempt 2/3] Auto-respawned Subagent-2** with updated constraints ➔ Re-calculated patch bytes ➔ App launched cleanly and passed Gate!
+> 5. ✅ **Supervisor Transition**: Automatically ran `statem_driver.py --advance` to proceed to the next phase!"
+
+---
+
+### 📦 Scenario 5: Proactive Session Compaction & Clean Restart
 > **👤 User**:
 > "Our chat history is over 20k tokens. Create a handover summary and let's continue in a new chat."
 
@@ -232,25 +258,6 @@ Here is an example showing how a user interacts naturally with an AI Agent acros
 > 📊 Context compressed to ~400 tokens. Please open a **New Chat** and prompt:
 > > *'Load AGENTS.md and HANDOVER.md, and continue with package_delivery phase.'*
 > The new session will resume instantly with 100% clean context!"
-
----
-
-### 🟢 Turn 5: Sequential Subagent Supervision & Auto-Healing (Multi-Agent Mode)
-> **👤 User**:
-> "Run the next phase in supervisor mode. Auto-retry on recoverable errors, and alert me only on fatal barriers."
-
-> **🤖 Agent (Main Supervisor)**:
-> "Started sequential supervisor:
-> ```bash
-> python3 scripts/statem_supervisor.py --runbook runbook.yaml --max-retries 3
-> ```
-> 
-> 🔄 **Execution Trace & Self-Healing Loop**:
-> 1. 🚀 **[Attempt 1/3] Dispatched Subagent-1** to apply patch at `0x51da68` ➔ App crashed on launch with `SIGILL (EXC_BAD_INSTRUCTION)`.
-> 2. 🔍 **Supervisor Error Classification**: Categorized as **`RECOVERABLE` (Illegal instruction BRK#0 written)**.
-> 3. 🧠 **Feedback Injection**: Extracted crash trace into negative constraint: *“Avoid BRK instructions; use true NOP (1F 20 03 D5).”*
-> 4. 🚀 **[Attempt 2/3] Auto-respawned Subagent-2** with updated constraints ➔ Re-calculated patch bytes ➔ App launched cleanly and passed Gate!
-> 5. ✅ **Supervisor Transition**: Automatically ran `statem_driver.py --advance` to proceed to the next phase!"
 
 ---
 
