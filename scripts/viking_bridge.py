@@ -221,7 +221,7 @@ MAX_SUBAGENT_STEPS = 20
 
 
 def record_and_check_budget():
-    """Physical step-budget watchdog to enforce subagent rotation after 20 steps."""
+    """Two-Phase Graceful Drain + Autonomous Blackbox Log Harvesting Watchdog."""
     cnt = 0
     if os.path.exists(BUDGET_FILE):
         try:
@@ -233,13 +233,23 @@ def record_and_check_budget():
     with open(BUDGET_FILE, "w") as f:
         f.write(str(cnt))
     
-    if cnt > MAX_SUBAGENT_STEPS:
+    if cnt in [18, 19]:
+        remaining = MAX_SUBAGENT_STEPS - cnt + 1
+        print("\n" + "⚠️ " * 30)
+        print(f"⚠️  \033[1;33m[BUDGET HUD: STEP {cnt}/{MAX_SUBAGENT_STEPS} - ONLY {remaining} STEPS LEFT]\033[0m")
+        print("⚠️  请立即停止扩散探索！将已定位的全部物理偏移、函数符号与阻碍写入 HANDOVER.md！")
+        print("⚠️ " * 30 + "\n")
+    elif cnt >= MAX_SUBAGENT_STEPS:
         print("\n" + "🛑" * 35)
-        print(f"🛑 [PHYSICAL STEP-BUDGET WATCHDOG: {cnt}/{MAX_SUBAGENT_STEPS} STEPS EXCEEDED]")
-        print("🛑 Current Subagent has reached the 20-step budget ceiling!")
-        print("🛑 Enforcing immediate yield to prevent local LLM context degradation.")
-        print("🛑 Please summarize progress into HANDOVER.md, output 'GATE FAIL: 20-Step Budget Reached' and exit.")
+        print(f"🛑 \033[1;31m[PHYSICAL STEP-BUDGET WATCHDOG: {cnt}/{MAX_SUBAGENT_STEPS} STEPS REACHED]\033[0m")
+        print("🛑 达到 20 步硬预算上限！触发两阶段优雅停机与黑匣子自动打捞。")
         print("🛑" * 35 + "\n")
+        # Trigger blackbox log harvester as ultimate safeguard
+        try:
+            import session_compactor
+            session_compactor.harvest_latest_discoveries(output_file="HANDOVER.md")
+        except Exception:
+            pass
 
 
 def run_command(cmd: str, dest_uri: str, max_lines=MAX_INLINE_LINES):
