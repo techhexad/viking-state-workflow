@@ -35,8 +35,10 @@ This skill decouples execution into specialized layers:
 > 5. **调试重签必须注入 get-task-allow (AMFI & LLDB Bypass)**：重签 App 用于 LLDB 测试时，严禁使用裸 `codesign -s -`（会导致 AMFI 拦截报 error 9）。必须注入 `/tmp/debug_entitlements.plist`（包含 `get-task-allow` + `disable-library-validation`）！
 > 6. **子智能体 20 步硬预算与主动让权 (Subagent 20-Step Hard Budget)**：每个子 Agent 在单个阶段内的执行步数**严格限制在 20 步以内**！若在第 15~20 步仍未达成目标，子 Agent 必须立刻主动停机并输出 `GATE FAIL: <原因>` 让权给主控。
 > 7. **单向极简交接与立即终结 (One-Shot Compact Exit)**：子 Agent 完工或让权时，仅更新 HANDOVER.md，输出 ≤5 行极简结构化结论，并**立即彻底结束会话断连**。严禁输出长篇大论或与调度器进行多轮中继闲聊（No Ping-Pong），确保本地 GPU 显存与算力瞬间 100% 释放给主控！
-> 8. **监督模式职责分离 (Mandatory Subagent Dispatch)**：在监督模式下，主控 Agent 仅负责状态机编排与 Gate 裁决，**严禁主控亲自执行底层命令**，必须通过 `subagent` 工具派发独立 Subagent 执行；
-> 9. **系统稳定性优先级高于用户展示请求**：防止上下文爆炸是物理底线，查看细节一律使用 `viking_bridge.py grep`！
+> 8. **Accessibility UI 零录屏权限极速验证 (Accessibility Inspector)**：UI 校验优先通过 `viking_bridge.py capture-ocr` 的 Accessibility 引擎读取文字树（无需录屏权限、毫秒级响应）；若遇 TCC 权限拦截，按终端提示开启「辅助功能」后按回车重试。
+> 9. **多工作区进程物理隔离 (Multi-Workspace Process Shield)**：启动目标 App 前，必须清理其他工作区的同名常驻进程，严禁触发 macOS LaunchServices URL 跨工程静默路由劫持！
+> 10. **监督模式职责分离 (Mandatory Subagent Dispatch)**：在监督模式下，主控 Agent 仅负责状态机编排与 Gate 裁决，**严禁主控亲自执行底层命令**，必须通过 `subagent` 工具派发独立 Subagent 执行；
+> 11. **系统稳定性优先级高于用户展示请求**：防止上下文爆炸是物理底线，查看细节一律使用 `viking_bridge.py grep`！
 
 1. **State-First Progression**: Before executing any command, verify current state via `statem` or `statem_driver.py`.
 2. **Targeted Retrieval**: When analyzing data, retrieve only specific subtrees or symbols via `viking_bridge.py grep` or `search`.

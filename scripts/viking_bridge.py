@@ -216,7 +216,34 @@ def grep_vfs(uri: str, pattern: str, context_lines=5):
         print(f"... and {len(matches) - 5} more matches truncated.")
 
 
+BUDGET_FILE = ".subagent_step_budget"
+MAX_SUBAGENT_STEPS = 20
+
+
+def record_and_check_budget():
+    """Physical step-budget watchdog to enforce subagent rotation after 20 steps."""
+    cnt = 0
+    if os.path.exists(BUDGET_FILE):
+        try:
+            with open(BUDGET_FILE, "r") as f:
+                cnt = int(f.read().strip())
+        except Exception:
+            cnt = 0
+    cnt += 1
+    with open(BUDGET_FILE, "w") as f:
+        f.write(str(cnt))
+    
+    if cnt > MAX_SUBAGENT_STEPS:
+        print("\n" + "🛑" * 35)
+        print(f"🛑 [PHYSICAL STEP-BUDGET WATCHDOG: {cnt}/{MAX_SUBAGENT_STEPS} STEPS EXCEEDED]")
+        print("🛑 Current Subagent has reached the 20-step budget ceiling!")
+        print("🛑 Enforcing immediate yield to prevent local LLM context degradation.")
+        print("🛑 Please summarize progress into HANDOVER.md, output 'GATE FAIL: 20-Step Budget Reached' and exit.")
+        print("🛑" * 35 + "\n")
+
+
 def run_command(cmd: str, dest_uri: str, max_lines=MAX_INLINE_LINES):
+    record_and_check_budget()
     print(f"[EXECUTING] {cmd}")
     proc = subprocess.run(cmd, shell=True, capture_output=True, text=True)
     combined_output = proc.stdout
@@ -326,18 +353,96 @@ def prompt_user_confirmation(question: str, timeout_sec: int = DEFAULT_TIMEOUT_S
         return ""
 
 
+def clean_foreign_processes(app_name: str, target_app_path: str):
+    """Ensure no stale/colliding instances from other directories or workspaces are running."""
+    target_real = os.path.realpath(target_app_path)
+    try:
+        ps = subprocess.run(["ps", "-eo", "pid,command"], capture_output=True, text=True)
+        for line in ps.stdout.splitlines():
+            if app_name.lower() in line.lower() and "viking_bridge" not in line and "grep" not in line:
+                parts = line.strip().split(None, 1)
+                if len(parts) == 2:
+                    pid, cmd = parts[0], parts[1]
+                    # If process is running from a different workspace, force kill it
+                    if target_real not in cmd:
+                        print(f"[SHIELD] 🛡️ Terminating foreign/stale process PID {pid}: {cmd[:60]}...")
+                        subprocess.run(["kill", "-9", pid], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:
+        pass
+
+
+def inspect_ui_accessibility(app_name: str, timeout_sec: int = 60) -> str:
+    """
+    Directly query UI text via macOS Accessibility API without needing screen recording permissions.
+    If permissions are missing, provides a friendly step-by-step grant guide.
+    """
+    as_script = f'''
+    tell application "System Events"
+        if not (exists (first process whose name is "{app_name}")) then
+            return ""
+        end if
+        set appProc to first process whose name is "{app_name}"
+        set outText to ""
+        repeat with w in (every window of appProc)
+            try
+                repeat with el in (entire contents of w)
+                    try
+                        set v to value of el
+                        if v is not missing value and (v as text) is not "" then
+                            set outText to outText & (v as text) & linefeed
+                        end if
+                    end try
+                    try
+                        set t to title of el
+                        if t is not missing value and (t as text) is not "" then
+                            set outText to outText & (t as text) & linefeed
+                        end if
+                    end try
+                end repeat
+            end try
+        end repeat
+        return outText
+    end tell
+    '''
+    res = subprocess.run(["osascript", "-e", as_script], capture_output=True, text=True)
+    if res.returncode == 0 and res.stdout.strip():
+        return res.stdout.strip()
+
+    # Detect TCC Accessibility Permission denial (-1719 / -1728 / not allowed)
+    err = res.stderr.lower()
+    if "not allowed" in err or "not authorized" in err or "-1719" in err or "-1728" in err:
+        print("\n" + "=" * 65)
+        print("⚠️  [macOS 辅助功能 (Accessibility) 授权提示]")
+        print("=" * 65)
+        print("当前终端环境缺少 macOS「辅助功能」读取权限。")
+        print("👉 请前往系统设置开启授权（仅需一次）：")
+        print("   1. 打开「系统设置 ➔ 隐私与安全性 ➔ 辅助功能」")
+        print("   2. 将当前运行的客户端（Terminal / DSH / VSCode）勾选为 ✅ 允许")
+        print("-" * 65)
+        ans = prompt_user_confirmation("已完成系统辅助功能授权？(按回车或输入 y 立即重试，等待则自动降级)", timeout_sec=timeout_sec)
+        if ans.lower() in ["y", "yes", ""]:
+            # Retry once
+            res_retry = subprocess.run(["osascript", "-e", as_script], capture_output=True, text=True)
+            if res_retry.returncode == 0 and res_retry.stdout.strip():
+                return res_retry.stdout.strip()
+    return ""
+
+
 def capture_and_ocr(app_path: str, open_settings=True, dest_uri: str = None, screenshot_path="/tmp/viking_ui_capture.png", auto_kill=True, max_retries=2, timeout_sec=DEFAULT_TIMEOUT_SEC, ask_user=False):
     """
-    Robust UI Capture & OCR with:
-    1. Crash & process liveness detection
-    2. Window elevation (anti-obscuration)
-    3. Multi-attempt retries with fallback triggers
-    4. Human-in-the-loop confirmation with configurable timeout
-    5. Auto teardown and diagnostic logging
+    Robust UI Capture & Verification with:
+    1. Multi-Workspace Collision Shield (auto-kill foreign colliding processes)
+    2. Zero-Permission Accessibility UI Text Inspector (fastest & most accurate)
+    3. Fallback Screen Capture + Vision OCR
+    4. Crash & process liveness detection
+    5. Human-in-the-loop confirmation with configurable timeout
     """
     app_name = os.path.basename(app_path).replace(".app", "")
     captured_text = ""
     
+    # 0. Clean any foreign/stale colliding instances
+    clean_foreign_processes(app_name, app_path)
+
     for attempt in range(1, max_retries + 1):
         print(f"\n[AUTO-UI Attempt {attempt}/{max_retries}] Pre-cleaning existing '{app_name}' instances...")
         subprocess.run(["pkill", "-9", "-f", app_name], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -374,7 +479,17 @@ def capture_and_ocr(app_path: str, open_settings=True, dest_uri: str = None, scr
         '''
         subprocess.run(["osascript", "-e", as_script], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-        # 3. Capture screenshot
+        # 3. Try Accessibility API Inspector first (Zero screen recording permissions required)
+        print(f"[AUTO-UI] Probing UI state via Accessibility API...")
+        acc_text = inspect_ui_accessibility(app_name, timeout_sec=45)
+        if acc_text and len(acc_text.splitlines()) >= 2:
+            print(f"✅ [AUTO-UI] Successfully extracted UI text via Accessibility API ({len(acc_text.splitlines())} items).")
+            captured_text = acc_text
+            if dest_uri:
+                put_vfs(dest_uri, captured_text)
+            break
+
+        # 4. Fallback to Screen Capture + Vision OCR
         print(f"[AUTO-UI] Capturing screen to {screenshot_path} ...")
         subprocess.run(["screencapture", "-x", screenshot_path], check=False)
         time.sleep(0.5)
@@ -386,13 +501,13 @@ def capture_and_ocr(app_path: str, open_settings=True, dest_uri: str = None, scr
             print(f"✅ [AUTO-UI] Successfully captured and verified UI text ({len(text.splitlines())} lines).")
             break
 
-        print(f"⚠️ [AUTO-UI] OCR text was empty or incomplete. Retrying...")
+        print(f"⚠️ [AUTO-UI] UI text probe was empty or incomplete. Retrying...")
         time.sleep(1.0)
 
-    # 4. Human-In-The-Loop Question (if requested or uncertain)
+    # 5. Human-In-The-Loop Question (if requested or uncertain)
     if ask_user:
         user_reply = prompt_user_confirmation(
-            f"请人工核对屏幕上的 '{app_name}' 界面状态。当前 OCR 提取结果为:\n{captured_text[:300]}...",
+            f"请人工核对屏幕上的 '{app_name}' 界面状态。当前提取结果为:\n{captured_text[:300]}...",
             timeout_sec=timeout_sec
         )
         if user_reply.lower() in ["y", "yes", "true", "1"]:
@@ -406,7 +521,7 @@ def capture_and_ocr(app_path: str, open_settings=True, dest_uri: str = None, scr
                 subprocess.run(["pkill", "-9", "-f", app_name], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             return 1
 
-    # 5. Teardown
+    # 6. Teardown
     if auto_kill:
         print(f"[AUTO-UI] Auto-terminating '{app_name}' to release file locks...")
         subprocess.run(["pkill", "-9", "-f", app_name], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
