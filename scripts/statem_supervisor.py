@@ -81,8 +81,9 @@ def generate_subagent_prompt(project: str, state_name: str, state_meta: dict, fa
 
 ## Operational Rules:
 1. All heavy commands (> 40 lines) MUST use: python3 {SCRIPT_DIR}/viking_bridge.py run --dest "viking://knowledge/{project}/..." --cmd "..."
-2. For UI verification, run: python3 {SCRIPT_DIR}/viking_bridge.py capture-ocr --app "work/<app_name>.app"
-3. When the gate criteria are met, write key findings to HANDOVER.md and exit with code 0.
+2. Before launching, rebuilding, or patching any app, ALWAYS enforce clean process termination: `pkill -9 -f "<app_name>" 2>/dev/null || killall -9 "<app_name>" 2>/dev/null || true` (never use plain pkill, macOS background daemons ignore SIGTERM).
+3. For UI verification, run: python3 {SCRIPT_DIR}/viking_bridge.py capture-ocr --app "work/<app_name>.app"
+4. When the gate criteria are met, write key findings to HANDOVER.md and exit with code 0.
 """
 
     if failure_context:
