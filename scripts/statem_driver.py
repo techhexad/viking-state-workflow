@@ -277,6 +277,18 @@ def advance_state(runbook_path: str, next_state_override=None):
     # If reached terminal completed state, trigger automatic macro recipe distillation
     if target_state == "completed":
         _auto_archive_completed_recipe(runbook_path, data)
+        import platform
+        native_arch = platform.machine()
+        other_arch = "x86_64" if native_arch == "arm64" else "arm64"
+        print("\n" + "=" * 70)
+        print(f"🎉 \033[1;32m[TASK COMPLETED & DELIVERED ON NATIVE ARCH ({native_arch})]\033[0m")
+        print(f"🍏 本机原生架构 ({native_arch}) 已 100% 验证通过并完成交付！")
+        print("=" * 70)
+        print("👉 \033[1;33m【跨架构 Universal 胖二进制交付选项】\033[0m")
+        print(f"   如需将补丁同步镜像到另一个架构 ({other_arch}) 并合成为 Universal 胖二进制，")
+        print(f"   只需向 Agent 发送指令：“同步 {other_arch}” 或 “生成 Universal 胖二进制”，")
+        print(f"   Agent 将自动镜像补丁并在 3 步内秒级合成交付！")
+        print("=" * 70 + "\n")
 
 
 def main():
