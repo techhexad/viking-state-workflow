@@ -93,7 +93,8 @@ You answer ONE question, persist the working set, then stop. You do not finish t
 
 ## Rules:
 1. One question only. No unrelated exploration.
-2. Exploration budget: at most 8 `viking_bridge.py` explore calls (`run`/`grep`/`ocr`/`capture-ocr`). `note`/`checkpoint`/`doctor` do not count. Calls 6–7 are refused (drain). Call 8 auto-writes checkpoint.json and exits 20.
+2. Exploration budget: at most 8 `viking_bridge.py` explore calls (`run`/`grep`/`ocr`). `note`/`checkpoint`/`doctor`/`ask-ui` do not count. Calls 6–7 are refused (drain). Call 8 auto-writes checkpoint.json and exits 20.
+   UI verify is `ask-ui` once (human y/n). Do not call capture-ocr in a retry loop.
 3. Persist every confirmed address/dead-end immediately:
    `python3 {SCRIPT_DIR}/viking_bridge.py note --confirmed "<fact>" --rejected "<dead-end>" --next "<next question>"`
 4. Heavy output must go through `python3 {SCRIPT_DIR}/viking_bridge.py run --dest "viking://knowledge/{project}/..." --cmd "..."`.

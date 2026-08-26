@@ -24,7 +24,7 @@
 ```
 runbook 阶段（Gate 过了才能 --advance）
     └── 多轮短冲刺（每轮只答一道小题）
-            └── 每轮最多 8 次 viking_bridge 探索（run/grep/ocr/capture-ocr）
+            └── 每轮最多 8 次 viking_bridge 探索（run/grep/ocr）
                     └── 事实写入 .viking_state/checkpoint.json
 ```
 
@@ -62,7 +62,7 @@ runbook 阶段（Gate 过了才能 --advance）
 2. **symbol_and_disasm** — 符号、字符串、完整反汇编进 `viking://`
 3. **analyze_gating** — 在**主二进制**做字符串 XREF（不要在 Paddle / Sparkle 里打转）
 4. **craft_patch** — 改跳转，必要时合成胖二进制，重签
-5. **verify_and_deliver** — 拉起应用 + `capture-ocr`，确认 Pro / Activated 界面
+5. **verify_and_deliver** — 人自己点进授权页，用 `ask-ui` 答 y/n
 
 第三阶段秒杀 SOP（字符串 XREF）：
 
@@ -118,10 +118,11 @@ python3 scripts/viking_bridge.py grep \
   --uri "viking://knowledge/<project>/disasm/main.asm" \
   --pattern "<符号或地址>" --context 15
 
-python3 scripts/viking_bridge.py capture-ocr \
+python3 scripts/viking_bridge.py ask-ui \
   --app "work/MyApp.app" \
-  --dest "viking://knowledge/<project>/ocr/ui.txt" \
-  --ask-user --timeout 600
+  --open \
+  --question "License/Pro 页是否显示 Activated 或 Pro？(y/n)" \
+  --timeout 600
 ```
 
 **3. 落盘（不计入 8 步）**
@@ -157,7 +158,7 @@ Bridge 硬限制：一道题在上下文胀起来之前停，并且**停之前�
 
 | 计入（上限 8） | 不计入 |
 |---|---|
-| `run` / `grep` / `ocr` / `capture-ocr` | `note` / `checkpoint` / `doctor` / `ping` / `sprint-reset` / `sprint-status` |
+| `run` / `grep` / `ocr` | `note` / `checkpoint` / `doctor` / `ping` / `sprint-reset` / `sprint-status` / `ask-ui` |
 | | 裸 `bash`、`hdiutil`、`lipo`、`read_file` |
 | | 主控的 `statem_driver` / `statem_supervisor` |
 
@@ -168,7 +169,7 @@ python3 scripts/viking_bridge.py sprint-reset
 python3 scripts/viking_bridge.py sprint-status    # 0/8 … 8/8
 ```
 
-> 子 Agent 若全程裸 bash，DSH 步数可以到 14、15，**超时不会触发**。要生效，探索必须走 `viking_bridge.py run|grep|ocr|capture-ocr`。
+> 子 Agent 若全程裸 bash，DSH 步数可以到 14、15，**超时不会触发**。要生效，探索必须走 `viking_bridge.py run|grep|ocr`。
 
 ### 一次冲刺里
 
@@ -213,7 +214,7 @@ python3 scripts/viking_bridge.py grep \
 - **强杀旧进程。** 补丁、重签、拉起测试前用 `pkill -9` / `killall -9`，不要只发 SIGTERM。
 - **多工作区隔离。** 启动目标 App 前清掉其它目录里的同名进程，避免 LaunchServices 串台。
 - **调试重签。** LLDB 测试必须带 `get-task-allow` + `disable-library-validation` 的 entitlements，禁止裸 `codesign -s -`。
-- **UI 验证。** 优先 `capture-ocr` 的 Accessibility 文字树；缺权限再降级 Vision OCR。
+- **UI 必须人验。** 一次 `ask-ui`。禁止自动 open + Cmd+, + 截屏。空 OCR 不是崩溃。
 - **错误分类。** `SIGILL` / 未授权 UI / 文件占用 → 注入负向约束后最多重建 3 次；SIP / sudo 密码 / 缺 DMG / 守护进程挂了 → 停下来问人。
 
 任务 `completed` 时，成功经验会追加到 `viking://memory/recipes/reverse_engineering.md`，下次 `workspace_init.py` 自动注入。

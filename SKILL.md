@@ -2,9 +2,8 @@
 name: viking-state-workflow
 description: >-
   Long-horizon agent execution framework combining StateM (state machine & runbooks), OpenViking (VFS context database),
-  and native macOS Vision OCR. Use when running complex, multi-step, or long-running tasks across any AI agent
-  (DSH, Hermes, OpenCode, Claude Code, Aider) to prevent context window overflow (OOM / 400 Context Length Exceeded),
-  enforce deterministic state transitions, inspect UI screenshots via zero-VRAM OCR, and automate session handovers.
+  and a human UI gate. Use when cracking / Pro-license bypassing a macOS app: prevent context overflow,
+  enforce runbook gates, persist a working set, and ask a human to confirm the license page.
 ---
 
 # Viking State Workflow (StateM + OpenViking + Multi-Agent)
@@ -19,7 +18,7 @@ This skill decouples execution into specialized layers:
 3. **Dual-Cycle Memory Crystallization (双周期范式自愈与沉淀)**:
    - **Working Set (过程级)**: Confirmed facts and rejected paths are merged into `.viking_state/checkpoint.json` + `discoveries.jsonl` on every sprint. `HANDOVER.md` is only a human-readable projection.
    - **Macro-Recipe Distillation (宏观范式级)**: Automatically distills task success recipes upon reaching `completed`, archiving them to `viking://memory/recipes/<type>.md` and auto-injecting them into future projects via `workspace_init.py`!
-4. **Zero-VRAM UI Inspection (macOS Vision OCR)**: Extracts text from UI screenshots in milliseconds via the Apple Neural Engine without requiring a multimodal vision LLM or eating image tokens.
+4. **Human UI gate**: License / Pro status is judged by a person (`ask-ui`). Optional `ocr` only if they already took a screenshot. Do not auto-open + Cmd+, + screenshot.
 5. **Micro-Sprint Execution**: The parent agent decomposes a runbook phase into one-question sprints. Each child sees only the checkpoint slice + one question, then dies. Context stays small because history and raw dumps never enter the next sprint.
 
 ---
@@ -33,9 +32,9 @@ This skill decouples execution into specialized layers:
 > 3. **彻底强杀旧进程 (Mandatory Force-Kill)**：在构建、补丁、重签或启动测试前，**严禁使用普通 `pkill`**。必须强制执行 `pkill -9 -f "<app_name>" 2>/dev/null || killall -9 "<app_name>" 2>/dev/null || true`，确保内存完全干净！
 > 4. **严禁原始十六进制 Dump 毒化上下文 (Anti-Hex-Dump Shield)**：严禁在终端大段打印 `memory read` / `xxd` / `hexdump` 原始十六进制数据（大量零字节会导致大模型注意力崩溃输出 `0,0,0,0...` 退化）。所有内存 Dump 必须使用 Python 脚本解析出关键结构，或通过管道转存至 `viking://`！
 > 5. **调试重签必须注入 get-task-allow (AMFI & LLDB Bypass)**：重签 App 用于 LLDB 测试时，严禁使用裸 `codesign -s -`（会导致 AMFI 拦截报 error 9）。必须注入 `/tmp/debug_entitlements.plist`（包含 `get-task-allow` + `disable-library-validation`）！
-> 6. **短冲刺子 Agent（Micro-Sprint）**：每个子 Agent 只做一道小题（`.viking_state/checkpoint.json` 的 `next_action`），禁止一次做完整个 runbook 阶段。探索类工具（`run`/`grep`/`ocr`/`capture-ocr`）单次冲刺上限 8 次；第 6–7 次起 bridge 拒绝探索、只准 `note`/`checkpoint`；第 8 次自动结晶 checkpoint 并以退出码 20 让权。`note`/`checkpoint`/`doctor`/`sprint-reset` 不计入预算。
+> 6. **短冲刺子 Agent（Micro-Sprint）**：每个子 Agent 只做一道小题（`.viking_state/checkpoint.json` 的 `next_action`），禁止一次做完整个 runbook 阶段。探索类工具（`run`/`grep`/`ocr`）单次冲刺上限 8 次；第 6–7 次起 bridge 拒绝探索、只准 `note`/`checkpoint`；第 8 次自动结晶 checkpoint 并以退出码 20 让权。`note`/`checkpoint`/`doctor`/`sprint-reset`/`ask-ui` 不计入预算。
 > 7. **工作集接力（Working Set）**：机器接力信源是 `.viking_state/checkpoint.json` 与 `discoveries.jsonl`（只追加合并，禁止覆盖已确认事实）。`HANDOVER.md` 只是给人看的渲染。子 Agent 结束时只输出 ≤5 行：`SPRINT_STATUS: DONE|YIELD|FAIL` / `CONFIRMED:` / `REJECTED:` / `NEXT:`，然后立即断连。严禁把反汇编全文或聊天记录交给下一任。
-> 8. **Accessibility UI 零录屏权限极速验证 (Accessibility Inspector)**：UI 校验优先通过 `viking_bridge.py capture-ocr` 的 Accessibility 引擎读取文字树（无需录屏权限、毫秒级响应）；若遇 TCC 权限拦截，按终端提示开启「辅助功能」后按回车重试。
+> 8. **UI 验收必须人工（ask-ui）**：禁止自动 `open` + `Cmd+,` + 截全屏/OCR 重试。授权页每个 App 不同，自动导航打不开目标页面。阶段 5 调用一次 `viking_bridge.py ask-ui`，让人自己点进 License/Pro 页并回答 y/n。`ASK_UI: NEED_HUMAN`（exit 4）交给主控问人，禁止循环重试。可选：人截好图后再 `ocr <png>`。
 > 9. **多工作区进程物理隔离 (Multi-Workspace Process Shield)**：启动目标 App 前，必须清理其他工作区的同名常驻进程，严禁触发 macOS LaunchServices URL 跨工程静默路由劫持！
 > 10. **本机架构优先渐进策略 (Native-First Architecture Strategy)**：面对 Universal 胖二进制时，**第一轮必须 100% 聚焦于本机原生架构（`uname -m`，如 Apple Silicon 下只跑 arm64）**！严禁在单会话中同时反编译两个架构。待本机架构验证翻绿交付后，再向用户询问或执行命令快速镜像同步到另一架构（x86_64）并合成 Universal 胖二进制！
 > 11. **监督模式职责分离 (Mandatory Subagent Dispatch)**：主控只做拆题、派短冲刺、读 checkpoint、判 Gate；**严禁主控亲自跑底层探索命令**，必须通过 `subagent` 工具派发独立 Subagent。短冲刺 DONE ≠ 阶段完成，阶段推进必须 `statem_driver.py --advance --gate-check`。
@@ -43,7 +42,7 @@ This skill decouples execution into specialized layers:
 
 1. **State-First Progression**: Before executing any command, verify current state via `statem` or `statem_driver.py`.
 2. **Targeted Retrieval**: When analyzing data, retrieve only specific subtrees or symbols via `viking_bridge.py grep` or `search`.
-3. **UI State Inspection via Native OCR**: When verifying app UI or popup dialogues, run `viking_bridge.py capture-ocr` to parse text directly without sending images into the LLM context.
+3. **UI gate is human**: `viking_bridge.py ask-ui` once. Do not call `capture-ocr` in a retry loop.
 4. **Working Set First**: Before any new sprint, load `.viking_state/checkpoint.json`. If the conversation is growing, render `HANDOVER.md` from the checkpoint (`session_compactor.py --from-checkpoint`) and spawn a clean child — never hand over raw chat history.
 
 ---
@@ -155,31 +154,21 @@ python3 "<SKILL_DIR>/scripts/viking_bridge.py" grep \
   --context 15
 ```
 
-### Step 5: UI Verification via Native OCR (Auto-Activate, Human-in-the-Loop & Zero-VRAM)
+### Step 5: Human UI gate (`ask-ui`)
 
-When verifying application state from screenshots or GUI windows, use the all-in-one automation command:
-```bash
-python3 "<SKILL_DIR>/scripts/viking_bridge.py" capture-ocr \
-  --app "<path_to_app>" \
-  --dest "viking://knowledge/<project>/ocr/ui_status.txt" \
-  --ask-user \
-  --timeout <seconds>
-```
-* **Process Lifecycle & Lock Prevention**:
-  - Before writing binary patches or codesigning, always ensure the target process is cleanly stopped (`pkill -9 -f <app_name> 2>/dev/null || true`) to prevent `Text file busy` and stale memory caches.
-  - `capture-ocr` automatically manages the entire lifecycle (pre-clean ➔ activate & bring to front ➔ trigger settings ➔ screenshot & OCR ➔ auto-teardown).
-* **User Intent & Timeout Mapping**:
-  - If the user says: *"验证时询问我，超时设为 X 分钟"* ➔ Agent automatically passes `--ask-user --timeout <X*60>`.
-  - Default when unspecified: `--timeout 600` (10 minutes).
-  - If the user says: *"无需询问/全自动运行"* ➔ Agent omits `--ask-user`.
-  - If the user does not respond within `--timeout`, it automatically falls back to self-healing without blocking.
+Do **not** auto-launch, send Cmd+,, screenshot, or scrape Accessibility. That path never opens the license page and just retries on empty OCR.
 
-Or run OCR directly on an existing screenshot:
 ```bash
-python3 "<SKILL_DIR>/scripts/viking_bridge.py" ocr \
-  screenshot.png \
-  --dest "viking://knowledge/<project>/ocr/ui_status.txt"
+python3 "<SKILL_DIR>/scripts/viking_bridge.py" ask-ui \
+  --app "work/<app_name>.app" \
+  --open \
+  --question "License/Pro page shows Activated or Pro? (y/n)" \
+  --timeout 600
 ```
+
+- Call **once** per verify sprint. Exit 0 = PASS, 1 = FAIL, 4 = NEED_HUMAN (parent asks in the main chat). Never loop on exit 4.
+- `--open` launches the app once so the human can click; it does not navigate.
+- Optional: human takes a screenshot, then `viking_bridge.py ocr screenshot.png --dest "viking://knowledge/<project>/ocr/ui_status.txt"`.
 
 ### Step 6: Gate Validation & State Transition
 
@@ -227,8 +216,8 @@ The next sprint loads `.viking_state/checkpoint.json` plus the runbook state.
 | `viking_bridge.py doctor` | Pre-flight check & dynamic server/auth discovery |
 | `viking_bridge.py ping` | Health-check local OpenViking server |
 | `viking_bridge.py run --dest <uri> --cmd "<cmd>"` | Run command & redirect heavy output to VFS |
-| `viking_bridge.py capture-ocr --app <app>` | Auto-activate app, open settings, screenshot & zero-VRAM OCR |
-| `viking_bridge.py ocr <image> [--dest <uri>]` | Extract text from screenshot via native macOS Vision |
+| `viking_bridge.py ask-ui [--app] [--open]` | Human y/n UI gate (no auto screenshot) |
+| `viking_bridge.py ocr <image> [--dest <uri>]` | OCR a screenshot the human already took |
 | `viking_bridge.py put <file> <uri>` | Push file into OpenViking VFS |
 | `viking_bridge.py grep --uri <uri> --pattern <str>` | Extract specific lines & context from VFS node (crystallizes hits) |
 | `viking_bridge.py note --confirmed/--rejected/--next` | Merge facts into checkpoint.json (does not count against sprint budget) |

@@ -35,7 +35,7 @@ TEMPLATES = {
             ("symbol_and_disasm", "Extract symbols, strings, and full disassembly to Viking", "Symbol tables and disassembly stored in viking://"),
             ("analyze_gating", "Locate authorization/license checks via String XREF in main binary", "Target check functions and patch addresses locked"),
             ("craft_patch", "Write byte patch, reconstruct fat binary and re-sign", "Patched binary passes codesign validation"),
-            ("verify_and_deliver", "Auto-activate app and verify UI state via capture-ocr", "UI status verified and packaged")
+            ("verify_and_deliver", "Human confirms Pro/Activated UI via ask-ui", "Human confirmed Pro/Activated on the license page")
         ],
         "custom_commands": """### 1. 逆向黄金法则与字符串交叉引用秒杀 SOP (String XREF-First Protocol)
 > [!IMPORTANT]
@@ -80,14 +80,16 @@ codesign --force --deep --sign - --entitlements /tmp/debug_entitlements.plist "w
 echo "<mangled_symbol>" | swift demangle
 ```
 
-### 3. 一键 UI 自动化验证 (阶段 5: verify_and_deliver)
+### 3. UI 验收必须人工 (阶段 5: verify_and_deliver)
+禁止自动 open + Cmd+, + 截屏 OCR 重试（打不开授权页）。只问一次人：
 ```bash
-python3 {skill_dir}/viking_bridge.py capture-ocr \\
+python3 {skill_dir}/viking_bridge.py ask-ui \\
   --app "work/<app_name>.app" \\
-  --dest "viking://knowledge/{project}/ocr/ui_status.txt" \\
-  --ask-user \\
+  --open \\
+  --question "License/Pro 页是否显示 Activated 或 Pro？(y/n)" \\
   --timeout 600
-```"""
+```
+exit 4 (`ASK_UI: NEED_HUMAN`) 交给主控在主对话询问，禁止循环重试。"""
     },
     "code_refactor": {
         "title": "Large-Scale Code Refactoring & Migration",
@@ -217,9 +219,9 @@ def generate_agents_md(project_name: str, task_type: str, user_prompt: str, targ
 3. **彻底强杀旧进程 (Mandatory Force-Kill)**：在构建、补丁、重签或启动测试前，**严禁使用普通 `pkill`**（macOS 守护进程会忽略 SIGTERM）。必须强制执行 `pkill -9 -f "<app_name>" 2>/dev/null || killall -9 "<app_name>" 2>/dev/null || true`，确保内存完全干净！
 4. **严禁原始十六进制 Dump 毒化上下文 (Anti-Hex-Dump Shield)**：严禁在终端大段打印 `memory read` / `xxd` / `hexdump` 原始十六进制数据（大量零字节与重复十六进制会导致大模型注意力崩溃输出 `0,0,0,0...` 退化）。所有内存 Dump 必须使用 Python 脚本解析出关键结构，或通过管道转存至 `viking://`！
 5. **调试重签必须注入 get-task-allow (AMFI & LLDB Bypass)**：重签 App 用于 LLDB 测试时，严禁使用裸 `codesign -s -`（会导致 AMFI 拦截报 error 9）。必须注入 `/tmp/debug_entitlements.plist`（包含 `get-task-allow` + `disable-library-validation`）！
-6. **短冲刺子 Agent（Micro-Sprint）**：每个子 Agent 只做一道小题（`.viking_state/checkpoint.json` 的 `next_action`），禁止一次做完整个 runbook 阶段。探索类工具（`run`/`grep`/`ocr`/`capture-ocr`）单次冲刺上限 8 次；第 6–7 次起 bridge 拒绝探索、只准 `note`/`checkpoint`；第 8 次自动结晶 checkpoint 并以退出码 20 让权。`note`/`checkpoint`/`doctor`/`sprint-reset` 不计入预算。
+6. **短冲刺子 Agent（Micro-Sprint）**：每个子 Agent 只做一道小题（`.viking_state/checkpoint.json` 的 `next_action`），禁止一次做完整个 runbook 阶段。探索类工具（`run`/`grep`/`ocr`）单次冲刺上限 8 次；第 6–7 次起 bridge 拒绝探索、只准 `note`/`checkpoint`；第 8 次自动结晶 checkpoint 并以退出码 20 让权。`note`/`checkpoint`/`doctor`/`sprint-reset`/`ask-ui` 不计入预算。
 7. **工作集接力（Working Set）**：机器接力信源是 `.viking_state/checkpoint.json` 与 `discoveries.jsonl`（只追加合并，禁止覆盖已确认事实）。`HANDOVER.md` 只是给人看的渲染。子 Agent 结束时只输出 ≤5 行：`SPRINT_STATUS: DONE|YIELD|FAIL` / `CONFIRMED:` / `REJECTED:` / `NEXT:`，然后立即断连。严禁把反汇编全文或聊天记录交给下一任。
-8. **Accessibility UI 零录屏权限极速验证 (Accessibility Inspector)**：UI 校验优先通过 `viking_bridge.py capture-ocr` 的 Accessibility 引擎读取文字树（无需录屏权限、毫秒级响应）；若遇 TCC 权限拦截，按终端提示开启「辅助功能」后按回车重试。
+8. **UI 验收必须人工（ask-ui）**：禁止自动截屏/OCR 重试。阶段 5 调用一次 `ask-ui`，人自己点进授权页并回答 y/n。`ASK_UI: NEED_HUMAN` 交给主控问人，禁止循环重试。
 9. **多工作区进程物理隔离 (Multi-Workspace Process Shield)**：启动目标 App 前，必须清理其他工作区的同名常驻进程，严禁触发 macOS LaunchServices URL 跨工程静默路由劫持！
 10. **本机架构优先渐进策略 (Native-First Architecture Strategy)**：面对 Universal 胖二进制时，**第一轮必须 100% 聚焦于本机原生架构（`uname -m`，如 Apple Silicon 下只跑 arm64）**！严禁在首轮分析或反编译非本机架构（x86_64）。待本机架构验证通过后，再按需镜像同步到另一架构并合成 Universal 胖二进制！
 11. **监督模式职责分离 (Mandatory Subagent Dispatch)**：主控只做拆题、派短冲刺、读 checkpoint、判 Gate；**严禁主控亲自跑底层探索命令**，必须通过 `subagent` 工具派发独立 Subagent。

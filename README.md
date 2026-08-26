@@ -22,7 +22,7 @@ This skill is not a general long-task OS. Do not use it for refactors, product a
 ```
 runbook phase (advance only after the Gate passes)
     └── many micro-sprints (one question each)
-            └── at most 8 viking_bridge explore calls per sprint
+            └── at most 8 viking_bridge explore calls per sprint (run/grep/ocr)
                     └── facts land in .viking_state/checkpoint.json
 ```
 
@@ -60,7 +60,7 @@ Generated `runbook.yaml` phases:
 2. **symbol_and_disasm** — symbols, strings, full disassembly into `viking://`
 3. **analyze_gating** — String XREF in the **main binary** (not Paddle / Sparkle)
 4. **craft_patch** — flip the branch, rebuild fat binary if needed, re-sign
-5. **verify_and_deliver** — launch + `capture-ocr`, confirm Pro / Activated UI
+5. **verify_and_deliver** — human opens the license page and answers `ask-ui` y/n
 
 String XREF SOP (phase 3):
 
@@ -116,10 +116,11 @@ python3 scripts/viking_bridge.py grep \
   --uri "viking://knowledge/<project>/disasm/main.asm" \
   --pattern "<symbol or address>" --context 15
 
-python3 scripts/viking_bridge.py capture-ocr \
+python3 scripts/viking_bridge.py ask-ui \
   --app "work/MyApp.app" \
-  --dest "viking://knowledge/<project>/ocr/ui.txt" \
-  --ask-user --timeout 600
+  --open \
+  --question "License/Pro page shows Activated or Pro? (y/n)" \
+  --timeout 600
 ```
 
 **3. Persist (does not count)**
@@ -155,7 +156,7 @@ A bridge-level hard limit: stop one question before context bloats, and persist 
 
 | Counts (cap 8) | Does not count |
 |---|---|
-| `run` / `grep` / `ocr` / `capture-ocr` | `note` / `checkpoint` / `doctor` / `ping` / `sprint-reset` / `sprint-status` |
+| `run` / `grep` / `ocr` | `note` / `checkpoint` / `doctor` / `ping` / `sprint-reset` / `sprint-status` / `ask-ui` |
 | | Raw `bash`, `hdiutil`, `lipo`, `read_file` |
 | | Parent `statem_driver` / `statem_supervisor` |
 
@@ -166,7 +167,7 @@ python3 scripts/viking_bridge.py sprint-reset
 python3 scripts/viking_bridge.py sprint-status    # 0/8 … 8/8
 ```
 
-> If the child only uses raw bash, the host step count can reach 14–15 and **the timeout never fires**. Exploration must go through `viking_bridge.py run|grep|ocr|capture-ocr`.
+> If the child only uses raw bash, the host step count can reach 14–15 and **the timeout never fires**. Exploration must go through `viking_bridge.py run|grep|ocr`.
 
 ### Inside one sprint
 
@@ -211,7 +212,7 @@ Expect grep hits on calls 1–5; `SPRINT DRAIN` + exit 18 on 6–7; `SPRINT_STAT
 - **Force-kill.** `pkill -9` / `killall -9` before patch, codesign, or launch — not a plain SIGTERM.
 - **Multi-workspace shield.** Kill same-named processes from other directories before launching the target app.
 - **Debug codesign.** LLDB tests need entitlements with `get-task-allow` + `disable-library-validation`. Do not use bare `codesign -s -`.
-- **UI check.** Prefer `capture-ocr` Accessibility text; fall back to Vision OCR if TCC blocks it.
+- **UI check is human.** `ask-ui` once. Do not auto-open + Cmd+, + screenshot. Empty OCR is not a crash.
 - **Errors.** `SIGILL` / unlicensed UI / file busy → inject a negative constraint, rebuild up to 3 times. SIP / sudo password / missing DMG / daemon down → stop and ask a human.
 
 On `completed`, recipes append to `viking://memory/recipes/reverse_engineering.md` and are injected by the next `workspace_init.py`.
