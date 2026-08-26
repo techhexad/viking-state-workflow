@@ -67,9 +67,13 @@ def classify_error(output_log: str) -> tuple:
 # Subagent Prompt Synthesizer
 # ==============================================================================
 
+import platform
+
+
 def generate_subagent_prompt(project: str, state_name: str, state_meta: dict, failure_context: str = None) -> str:
     desc = state_meta.get("description", "")
     gate = state_meta.get("gate", state_meta.get("gates", ""))
+    host_arch = platform.machine() or "arm64"
     
     prompt = f"""You are the specialized Subagent for Phase [{state_name}] in project [{project}].
 
@@ -81,7 +85,7 @@ def generate_subagent_prompt(project: str, state_name: str, state_meta: dict, fa
 
 ## Operational Rules & Strict Step Budget:
 1. 🛑 **Hard Step Budget (最大 20 步硬熔断)**: 你在当前阶段的执行预算严格限制在 **20 步** 以内！如果在第 15 步仍未达成目标，必须立即停止探索，将已定位地址和阻碍写入 HANDOVER.md，输出 `GATE FAIL: <原因>` 并正常退出。监督器会自动销毁你的会话，拉起全新的下一任子智能体接力，彻底防止长跑退化！
-2. 🎯 **宿主架构单一聚焦 (Target Architecture Pinning)**: 在 Apple Silicon 机器上，**严禁反编译或分析 x86_64 Intel 架构**！必须 100% 聚焦于原生的 `arm64` 薄片进行分析与补丁，严禁跨架构过度工程！
+2. 🎯 **宿主架构动态自适应聚焦 (Target Architecture Pinning)**: 当前宿主机原生架构为 [{host_arch}]。逆向分析与打补丁必须 100% 聚焦于原生的 [{host_arch}] 单架构薄片进行分析与验证，严禁分心反编译非宿主架构（如异构薄片），杜绝跨架构过度工程！
 3. ⛔ **严禁 Shell 睡眠轮询 (No Polling Loops)**: 严禁在 Bash 中编写 `while sleep ...` 或定时轮询死循环，所有命令必须同步返回或立即交割！
 4. 🛡️ **严禁内存 Dump 毒化上下文 (Anti-Hex-Dump Shield)**: 严禁在终端大段打印 `memory read` / `xxd` / `hexdump` 原始十六进制。所有内存 Dump 必须使用 Python 解析出关键结构或管道写入 `viking://`！
 5. 🧹 **彻底强杀旧进程 (Mandatory Force-Kill)**: 在构建、补丁、重签或启动测试前，必须强制执行 `pkill -9 -f "<app_name>" 2>/dev/null || killall -9 "<app_name>" 2>/dev/null || true`，确保内存完全干净！
