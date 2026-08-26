@@ -29,7 +29,6 @@ import working_set
 
 FATAL_PATTERNS = [
     (r"Operation not permitted", "macOS SIP or filesystem permission barrier (requires human authorization)"),
-    (r"Permission denied", "File permissions restricted (requires sudo/chmod)"),
     (r"Password:", "Interactive sudo password prompt encountered"),
     (r"No space left on device", "Disk space exhausted"),
     (r"Connection refused.*(1933|8000)", "Core infrastructure daemon (OpenViking or Model Server) is offline"),
@@ -41,6 +40,7 @@ RECOVERABLE_PATTERNS = [
     (r"SIGSEGV|EXC_BAD_ACCESS", "Segmentation fault / invalid memory address accessed"),
     (r"Unlicensed|Trial Expired|未许可", "UI verification failed: License/Pro checks still active"),
     (r"Text file busy", "Binary locked by running process (requires pkill cleanup)"),
+    (r"Permission denied", "File permissions restricted (retry after chmod/codesign, do not treat as SIP)"),
     (r"code signature invalid|CSSMERR_TP_NOT_TRUSTED", "Ad-hoc codesigning failed or needs resigning"),
     (r"Prompt too long|Context Length Exceeded", "Subagent context overflowed (requires fresh clean restart)")
 ]
@@ -127,7 +127,7 @@ def _sprint_status_from_output(output: str, returncode: int) -> str:
         return "DRAIN"
     if re.search(r"SPRINT_STATUS:\s*FAIL|GATE FAIL", output, re.IGNORECASE):
         return "FAIL"
-    if re.search(r"SPRINT_STATUS:\s*DONE", output, re.IGNORECASE) or returncode == 0:
+    if re.search(r"SPRINT_STATUS:\s*DONE", output, re.IGNORECASE):
         return "DONE"
     return "UNKNOWN"
 
@@ -181,7 +181,7 @@ def supervise_phase(runbook_path: str, max_retries: int = 3, auto_execute_cmd: s
         print(f"\n🔍 Sprint result: [{sprint_status}] rc={returncode}")
 
         if sprint_status in ("DONE", "YIELD", "DRAIN"):
-            if not os.path.exists(working_set.CHECKPOINT_FILE):
+            if not os.path.exists(working_set.checkpoint_file()):
                 working_set.auto_synthesize_checkpoint(reason=f"sprint {sprint_status}")
             print("✅ Working set is on disk (.viking_state/checkpoint.json).")
             print("⛔ Not advancing the runbook phase. Parent must gate-check, then dispatch the next sprint.")

@@ -278,6 +278,13 @@ python3 {skill_dir}/session_compactor.py \\
     print(f"✅ Generated tailored AGENTS.md: {agents_file}")
 
 
+def _yaml_quote(s: str) -> str:
+    text = (s or "").replace("\r", " ").replace("\n", " ")
+    if '"' in text and "'" not in text:
+        return f"'{text}'"
+    return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
 def generate_runbook_yaml(project_name: str, task_type: str, user_prompt: str, target_dir: str):
     tmpl = TEMPLATES.get(task_type, TEMPLATES["general_long_task"])
     states_list = tmpl["states"]
@@ -285,7 +292,7 @@ def generate_runbook_yaml(project_name: str, task_type: str, user_prompt: str, t
     lines = [
         "version: '1.0'",
         f"task_name: {project_name}_{task_type}",
-        f"description: \"{user_prompt.strip() or tmpl['description']}\"",
+        f"description: {_yaml_quote(user_prompt.strip() or tmpl['description'])}",
         f"initial_state: {states_list[0][0]}",
         f"current_state: {states_list[0][0]}",
         "states:"
@@ -295,8 +302,8 @@ def generate_runbook_yaml(project_name: str, task_type: str, user_prompt: str, t
         next_state = states_list[idx + 1][0] if idx + 1 < len(states_list) else "completed"
         lines.append(f"  {s_id}:")
         lines.append(f"    name: {s_id}")
-        lines.append(f"    description: \"{s_desc}\"")
-        lines.append(f"    gate: \"{s_gate}\"")
+        lines.append(f"    description: {_yaml_quote(s_desc)}")
+        lines.append(f"    gate: {_yaml_quote(s_gate)}")
         lines.append("    transition:")
         lines.append(f"      on_success: {next_state}")
         lines.append(f"      on_failure: {s_id}")

@@ -27,6 +27,8 @@ MAX_INLINE_LINES = int(os.environ.get("VIKING_MAX_INLINE_LINES", "40"))
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 LOCAL_VFS_BACKUP = os.path.expanduser("~/.openviking/local_vfs")
 DEFAULT_TIMEOUT_SEC = int(os.environ.get("VIKING_USER_TIMEOUT", "600"))  # 10 minutes default
+DEFAULT_RUN_TIMEOUT_SEC = int(os.environ.get("VIKING_RUN_TIMEOUT", "600"))
+BRIDGE_ACTIVE_ENV = "VIKING_BRIDGE_ACTIVE"
 
 
 def _auto_discover_config():
@@ -96,8 +98,23 @@ def _http_request(endpoint: str, method="GET", data=None):
         return {"error": str(e)}
 
 
+def vfs_relpath(uri: str) -> str:
+    """Map viking://... to a relative path; reject traversal."""
+    raw = (uri or "").replace("viking://", "").replace("\\", "/")
+    parts = []
+    for p in raw.split("/"):
+        if p in ("", "."):
+            continue
+        if p == "..":
+            raise ValueError(f"illegal VFS path (parent segment): {uri}")
+        parts.append(p)
+    if not parts:
+        raise ValueError(f"empty VFS path: {uri}")
+    return os.path.join(*parts)
+
+
 def _write_local_backup(uri: str, content: str):
-    safe_rel = uri.replace("viking://", "").lstrip("/")
+    safe_rel = vfs_relpath(uri)
     target_path = os.path.join(LOCAL_VFS_BACKUP, safe_rel)
     try:
         os.makedirs(os.path.dirname(target_path), exist_ok=True)
@@ -106,7 +123,7 @@ def _write_local_backup(uri: str, content: str):
         return target_path
     except (PermissionError, OSError):
         # Sandbox fallback: write inside current working directory
-        ws_backup = os.path.join(os.getcwd(), ".viking_vfs", safe_rel)
+        ws_backup = os.path.join(working_set.project_root(), ".viking_vfs", safe_rel)
         os.makedirs(os.path.dirname(ws_backup), exist_ok=True)
         with open(ws_backup, "w", encoding="utf-8") as f:
             f.write(content)
@@ -173,29 +190,38 @@ def get_vfs(uri: str):
     res = _http_request("/api/v1/content/read", method="POST", data=payload)
     if "error" not in res and "content" in res:
         return res["content"]
-    safe_rel = uri.replace("viking://", "").lstrip("/")
+    try:
+        safe_rel = vfs_relpath(uri)
+    except ValueError as e:
+        return f"[ERROR] {e}"
     target_path = os.path.join(LOCAL_VFS_BACKUP, safe_rel)
     if os.path.exists(target_path):
         with open(target_path, "r", encoding="utf-8") as f:
             return f.read()
-    ws_path = os.path.join(os.getcwd(), ".viking_vfs", safe_rel)
+    ws_path = os.path.join(working_set.project_root(), ".viking_vfs", safe_rel)
     if os.path.exists(ws_path):
         with open(ws_path, "r", encoding="utf-8") as f:
             return f.read()
     return f"[ERROR] Node {uri} not found."
 
 
-def grep_vfs(uri: str, pattern: str, context_lines=5):
+def grep_vfs(uri: str, pattern: str, context_lines=5, ignore_case=True, max_matches=5):
+    """Search a VFS node. Returns 0 on hits, 1 on miss/missing, 2 on bad regex."""
     enforce_explore_budget()
     content = get_vfs(uri)
     if not content or content.startswith("[ERROR]"):
         print(content or f"[ERROR] Empty content in {uri}")
-        return
+        return 1
+
+    flags = re.IGNORECASE if ignore_case else 0
+    try:
+        regex = re.compile(pattern, flags)
+    except re.error as e:
+        print(f"[ERROR] Invalid regex {pattern!r}: {e}")
+        return 2
 
     lines = content.splitlines()
     matches = []
-    regex = re.compile(pattern, re.IGNORECASE)
-
     for idx, line in enumerate(lines):
         if regex.search(line):
             start = max(0, idx - context_lines)
@@ -205,11 +231,12 @@ def grep_vfs(uri: str, pattern: str, context_lines=5):
 
     if not matches:
         print(f"[GREP] No matches found for pattern '{pattern}' in {uri}.")
-        return
+        return 1
 
+    shown = max(1, max_matches)
     print(f"[GREP] Found {len(matches)} match(es) for '{pattern}' in {uri}:\n")
     crystallized = 0
-    for match_num, (line_no, start_line, snippet) in enumerate(matches[:5], 1):
+    for match_num, (line_no, start_line, snippet) in enumerate(matches[:shown], 1):
         print(f"--- Match #{match_num} (around line {line_no}) ---")
         for offset, s_line in enumerate(snippet):
             curr_no = start_line + offset
@@ -218,10 +245,12 @@ def grep_vfs(uri: str, pattern: str, context_lines=5):
             if curr_no == line_no and working_set.append_discovery("grep", s_line, source=uri):
                 crystallized += 1
         print()
-    if len(matches) > 5:
-        print(f"... and {len(matches) - 5} more matches truncated.")
+    if len(matches) > shown:
+        print(f"... and {len(matches) - shown} more matches truncated. "
+              f"Pass --max-matches or a tighter --pattern to page.")
     if crystallized:
         print(f"📌 Crystallized {crystallized} hit(s) into .viking_state/discoveries.jsonl")
+    return 0
 
 
 def enforce_explore_budget():
@@ -239,27 +268,48 @@ def enforce_explore_budget():
         sys.exit(20)
 
 
-def run_command(cmd: str, dest_uri: str, max_lines=MAX_INLINE_LINES):
+def run_command(cmd: str, dest_uri: str, max_lines=MAX_INLINE_LINES, timeout_sec=DEFAULT_RUN_TIMEOUT_SEC):
     enforce_explore_budget()
     print(f"[EXECUTING] {cmd}")
-    proc = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+    env = os.environ.copy()
+    env[BRIDGE_ACTIVE_ENV] = "1"
+    try:
+        proc = subprocess.run(
+            cmd,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=timeout_sec,
+            env=env,
+        )
+    except subprocess.TimeoutExpired:
+        print(f"[ERROR] Command timed out after {timeout_sec}s: {cmd}")
+        return 124
     combined_output = proc.stdout
     if proc.stderr:
         combined_output += ("\n[STDERR]\n" + proc.stderr)
 
+    failed = proc.returncode != 0
     lines = combined_output.splitlines()
     if len(lines) <= max_lines:
         print(combined_output)
-        working_set.crystallize_text(combined_output, source=dest_uri)
-        if dest_uri:
-            working_set.merge_checkpoint(artifacts=[dest_uri])
+        if not failed:
+            working_set.crystallize_text(combined_output, source=dest_uri)
+            if dest_uri:
+                working_set.merge_checkpoint(artifacts=[dest_uri])
         return proc.returncode
 
-    put_vfs(dest_uri, combined_output, tags=["cmd_output", "auto_intercept"])
-    
+    try:
+        put_vfs(dest_uri, combined_output, tags=["cmd_output", "auto_intercept"])
+    except ValueError as e:
+        print(f"[ERROR] {e}")
+        return 2
+
     print("\n" + "=" * 70)
     print(f"🛡️  [VIKING INTERCEPTOR: Heavy Output Detected ({len(lines)} lines)]")
     print(f"📍 Stored at: {dest_uri}")
+    if failed:
+        print(f"⚠️  Command exited {proc.returncode}; output stored but not recorded as a gate artifact.")
     print("=" * 70)
     print("Top 10 lines preview:")
     for line in lines[:10]:
@@ -271,9 +321,10 @@ def run_command(cmd: str, dest_uri: str, max_lines=MAX_INLINE_LINES):
     print("=" * 70)
     print(f"💡 Tip: To inspect specific symbols, run:")
     print(f"   python viking_bridge.py grep --uri \"{dest_uri}\" --pattern \"<keyword>\"\n")
-    working_set.crystallize_text("\n".join(lines[:40] + lines[-40:]), source=dest_uri)
-    if dest_uri:
-        working_set.merge_checkpoint(artifacts=[dest_uri])
+    if not failed:
+        working_set.crystallize_text("\n".join(lines[:40] + lines[-40:]), source=dest_uri)
+        if dest_uri:
+            working_set.merge_checkpoint(artifacts=[dest_uri])
 
     return proc.returncode
 
@@ -360,19 +411,30 @@ def prompt_user_confirmation(question: str, timeout_sec: int = DEFAULT_TIMEOUT_S
 
 
 def clean_foreign_processes(app_name: str, target_app_path: str):
-    """Ensure no stale/colliding instances from other directories or workspaces are running."""
+    """Kill other bundles with the same .app name, not arbitrary substring matches."""
     target_real = os.path.realpath(target_app_path)
+    if not app_name or not target_real:
+        return
     try:
         ps = subprocess.run(["ps", "-eo", "pid,command"], capture_output=True, text=True)
         for line in ps.stdout.splitlines():
-            if app_name.lower() in line.lower() and "viking_bridge" not in line and "grep" not in line:
-                parts = line.strip().split(None, 1)
-                if len(parts) == 2:
-                    pid, cmd = parts[0], parts[1]
-                    # If process is running from a different workspace, force kill it
-                    if target_real not in cmd:
-                        print(f"[SHIELD] 🛡️ Terminating foreign/stale process PID {pid}: {cmd[:60]}...")
-                        subprocess.run(["kill", "-9", pid], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            parts = line.strip().split(None, 1)
+            if len(parts) != 2 or not parts[0].isdigit():
+                continue
+            pid, cmd = parts[0], parts[1]
+            if "viking_bridge" in cmd:
+                continue
+            match = re.search(r"((?:\/|\A)[^\s]*\.app)", cmd)
+            if not match:
+                continue
+            other_app = os.path.realpath(match.group(1))
+            other_name = os.path.basename(other_app).replace(".app", "")
+            if other_name.lower() != app_name.lower():
+                continue
+            if other_app == target_real or other_app.startswith(target_real + os.sep):
+                continue
+            print(f"[SHIELD] 🛡️ Terminating foreign/stale process PID {pid}: {cmd[:60]}...")
+            subprocess.run(["kill", "-9", pid], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except Exception:
         pass
 
@@ -446,6 +508,12 @@ def main():
     run_parser.add_argument("--cmd", required=True, help="Shell command to run")
     run_parser.add_argument("--dest", required=True, help="Viking URI (e.g. viking://knowledge/disasm.asm)")
     run_parser.add_argument("--max-lines", type=int, default=MAX_INLINE_LINES, help="Max inline lines before offload")
+    run_parser.add_argument(
+        "--timeout",
+        type=int,
+        default=DEFAULT_RUN_TIMEOUT_SEC,
+        help=f"Kill the command after N seconds (default {DEFAULT_RUN_TIMEOUT_SEC}, env VIKING_RUN_TIMEOUT)",
+    )
 
     # OCR
     ocr_parser = subparsers.add_parser("ocr", help="Extract text from screenshot using native macOS Vision")
@@ -494,6 +562,20 @@ def main():
     grep_parser.add_argument("--uri", required=True, help="Target Viking URI")
     grep_parser.add_argument("--pattern", required=True, help="Regex or string pattern")
     grep_parser.add_argument("--context", type=int, default=5, help="Lines of context around match")
+    grep_parser.add_argument("--max-matches", type=int, default=5, help="Max match snippets to print")
+    grep_parser.add_argument(
+        "--ignore-case",
+        dest="ignore_case",
+        action="store_true",
+        default=True,
+        help="Case-insensitive search (default)",
+    )
+    grep_parser.add_argument(
+        "--case-sensitive",
+        dest="ignore_case",
+        action="store_false",
+        help="Disable case-insensitive search",
+    )
 
     # Working set (persist-only; does not consume sprint explore budget)
     note_parser = subparsers.add_parser("note", help="Append confirmed/rejected facts into checkpoint.json")
@@ -514,7 +596,11 @@ def main():
     elif args.subcommand == "ping":
         sys.exit(0 if ping() else 1)
     elif args.subcommand == "run":
-        sys.exit(run_command(args.cmd, args.dest, args.max_lines))
+        try:
+            sys.exit(run_command(args.cmd, args.dest, args.max_lines, timeout_sec=args.timeout))
+        except ValueError as e:
+            print(f"[ERROR] {e}")
+            sys.exit(2)
     elif args.subcommand == "ocr":
         code, _ = run_ocr(args.image, args.dest)
         sys.exit(code)
@@ -532,14 +618,24 @@ def main():
         if os.path.exists(args.file):
             with open(args.file, "r", encoding="utf-8", errors="replace") as f:
                 content = f.read()
-            put_vfs(args.uri, content)
+            try:
+                put_vfs(args.uri, content)
+            except ValueError as e:
+                print(f"[ERROR] {e}")
+                sys.exit(2)
         else:
             print(f"[ERROR] File not found: {args.file}")
             sys.exit(1)
     elif args.subcommand == "get":
         print(get_vfs(args.uri))
     elif args.subcommand == "grep":
-        grep_vfs(args.uri, args.pattern, args.context)
+        sys.exit(grep_vfs(
+            args.uri,
+            args.pattern,
+            args.context,
+            ignore_case=getattr(args, "ignore_case", True),
+            max_matches=getattr(args, "max_matches", 5),
+        ) or 0)
     elif args.subcommand == "note":
         data = working_set.merge_checkpoint(
             confirmed=args.confirmed,

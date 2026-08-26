@@ -176,6 +176,7 @@ Once an operation succeeds (e.g. patch applied and verified):
 ```bash
 python3 "<SKILL_DIR>/scripts/statem_driver.py" --runbook runbook.yaml --advance --gate-check
 ```
+`--advance` always evaluates the gate (new confirmed facts / artifacts, plus phase-specific checks such as `work/` or `ask-ui` PASS). `--force` skips the check. Do not `--force` to paper over a failed sprint.
 
 ### Step 7: Sequential Micro-Sprint Supervision & Error Classification (Optional Multi-Agent Mode)
 
@@ -224,7 +225,7 @@ The next sprint loads `.viking_state/checkpoint.json` plus the runbook state.
 | `viking_bridge.py checkpoint` | Print the current working set |
 | `viking_bridge.py sprint-reset` | Reset micro-sprint exploration counter |
 | `statem_driver.py --status` | Display current state machine phase & gates |
-| `statem_driver.py --advance` | Advance to the next verified state |
+| `statem_driver.py --advance --gate-check` | Advance only if the phase gate is evidenced (`--force` skips) |
 | `statem_supervisor.py --sprint-goal "<q>"` | Synthesize a one-question subagent prompt + reset sprint budget |
 | `session_compactor.py --from-checkpoint` | Render HANDOVER.md from checkpoint.json |
 

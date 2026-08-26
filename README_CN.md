@@ -142,8 +142,9 @@ python3 scripts/statem_supervisor.py \
   --sprint-goal "<一道小题>" \
   --max-retries 3
 
-# 短冲刺 DONE ≠ 阶段完成
+# 短冲刺 DONE ≠ 阶段完成。空 checkpoint 会被拒绝。
 python3 scripts/statem_driver.py --advance --gate-check
+# 紧急跳过：python3 scripts/statem_driver.py --advance --force
 ```
 
 `statem_supervisor.py` 合成 prompt 时会 `sprint-reset`，并把 checkpoint 切片注入子 Agent。子进程 exit 0 **不会**自动推进阶段。

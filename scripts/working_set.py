@@ -16,19 +16,17 @@ import os
 import re
 from datetime import datetime
 
-STATE_DIR = ".viking_state"
-CHECKPOINT_FILE = os.path.join(STATE_DIR, "checkpoint.json")
-DISCOVERIES_FILE = os.path.join(STATE_DIR, "discoveries.jsonl")
-BUDGET_FILE = os.path.join(STATE_DIR, "sprint_budget")
-HANDOVER_FILE = "HANDOVER.md"
-
+STATE_DIRNAME = ".viking_state"
 MAX_SPRINT_STEPS = 8
 DRAIN_AFTER = 6  # 6-7 refuse exploration; 8 auto-crystallize and yield
 
+# Resolved from project root (runbook.yaml / .viking_state), not the process CWD.
+_PROJECT_ROOT = None
+
 VALUE_PAT = re.compile(
-    r"(0x[0-9a-fA-F]{4,}|foff|vaddr|tbnz|tbz|cbz|cbnz|csel|adrp|"
-    r"codesign|Unlicensed|Activated|isPro|Trial Expired|MATCH|"
-    r"symbol|patch|NOP|BRK)",
+    r"(0x[0-9a-fA-F]{6,}|foff\s*[:=]|vaddr\s*[:=]|"
+    r"\b(tbnz|tbz|cbz|cbnz|csel|adrp)\b|"
+    r"codesign|Unlicensed|Activated|\bisPro\b|Trial Expired|\bMATCH\b)",
     re.IGNORECASE,
 )
 
@@ -40,18 +38,78 @@ EMPTY_CHECKPOINT = {
     "next_action": "",
     "artifacts": [],
     "sprint": {"status": "", "reason": ""},
+    "gate": {"last_evidence_count": 0, "last_from": "", "last_to": ""},
 }
 
 
+def set_project_root(path: str):
+    """Pin working-set paths to a workspace (typically the runbook directory)."""
+    global _PROJECT_ROOT
+    _PROJECT_ROOT = os.path.abspath(path) if path else None
+
+
+def project_root() -> str:
+    env = os.environ.get("VIKING_PROJECT_ROOT")
+    if env:
+        return os.path.abspath(env)
+    if _PROJECT_ROOT:
+        return _PROJECT_ROOT
+    here = os.path.abspath(os.getcwd())
+    cur = here
+    while True:
+        if os.path.isfile(os.path.join(cur, "runbook.yaml")) or os.path.isdir(
+            os.path.join(cur, STATE_DIRNAME)
+        ):
+            return cur
+        parent = os.path.dirname(cur)
+        if parent == cur:
+            return here
+        cur = parent
+
+
+def state_dir() -> str:
+    return os.path.join(project_root(), STATE_DIRNAME)
+
+
+def checkpoint_file() -> str:
+    return os.path.join(state_dir(), "checkpoint.json")
+
+
+def discoveries_file() -> str:
+    return os.path.join(state_dir(), "discoveries.jsonl")
+
+
+def budget_file() -> str:
+    return os.path.join(state_dir(), "sprint_budget")
+
+
+def handover_file() -> str:
+    return os.path.join(project_root(), "HANDOVER.md")
+
+
+def __getattr__(name):
+    mapping = {
+        "STATE_DIR": state_dir,
+        "CHECKPOINT_FILE": checkpoint_file,
+        "DISCOVERIES_FILE": discoveries_file,
+        "BUDGET_FILE": budget_file,
+        "HANDOVER_FILE": handover_file,
+    }
+    if name in mapping:
+        return mapping[name]()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
 def ensure_state_dir():
-    os.makedirs(STATE_DIR, exist_ok=True)
+    os.makedirs(state_dir(), exist_ok=True)
 
 
 def load_checkpoint() -> dict:
-    if not os.path.exists(CHECKPOINT_FILE):
+    path = checkpoint_file()
+    if not os.path.exists(path):
         return json.loads(json.dumps(EMPTY_CHECKPOINT))
     try:
-        with open(CHECKPOINT_FILE, "r", encoding="utf-8") as f:
+        with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
         if not isinstance(data, dict):
             return json.loads(json.dumps(EMPTY_CHECKPOINT))
@@ -65,6 +123,8 @@ def load_checkpoint() -> dict:
             merged["artifacts"] = []
         if not isinstance(merged.get("sprint"), dict):
             merged["sprint"] = {"status": "", "reason": ""}
+        if not isinstance(merged.get("gate"), dict):
+            merged["gate"] = {"last_evidence_count": 0, "last_from": "", "last_to": ""}
         return merged
     except Exception:
         return json.loads(json.dumps(EMPTY_CHECKPOINT))
@@ -73,11 +133,28 @@ def load_checkpoint() -> dict:
 def save_checkpoint(data: dict):
     ensure_state_dir()
     data["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    with open(CHECKPOINT_FILE, "w", encoding="utf-8") as f:
+    with open(checkpoint_file(), "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
         f.write("\n")
         f.flush()
         os.fsync(f.fileno())
+
+
+def evidence_count(data: dict = None) -> int:
+    data = data if data is not None else load_checkpoint()
+    return len(data.get("confirmed") or []) + len(data.get("artifacts") or [])
+
+
+def record_gate_pass(from_state: str, to_state: str) -> dict:
+    data = load_checkpoint()
+    data["phase"] = to_state
+    data["gate"] = {
+        "last_evidence_count": evidence_count(data),
+        "last_from": from_state or "",
+        "last_to": to_state or "",
+    }
+    save_checkpoint(data)
+    return data
 
 
 def _norm_text(text: str) -> str:
@@ -105,9 +182,10 @@ def append_discovery(kind: str, text: str, source: str = "") -> bool:
         return False
     ensure_state_dir()
     existing = []
-    if os.path.exists(DISCOVERIES_FILE):
+    dfile = discoveries_file()
+    if os.path.exists(dfile):
         try:
-            with open(DISCOVERIES_FILE, "r", encoding="utf-8", errors="replace") as f:
+            with open(dfile, "r", encoding="utf-8", errors="replace") as f:
                 existing = f.readlines()[-200:]
         except Exception:
             existing = []
@@ -124,7 +202,7 @@ def append_discovery(kind: str, text: str, source: str = "") -> bool:
         "text": line,
         "source": source,
     }
-    with open(DISCOVERIES_FILE, "a", encoding="utf-8") as f:
+    with open(dfile, "a", encoding="utf-8") as f:
         f.write(json.dumps(rec, ensure_ascii=False) + "\n")
         f.flush()
         os.fsync(f.fileno())
@@ -182,10 +260,11 @@ def merge_checkpoint(confirmed=None, rejected=None, next_action=None, artifacts=
 
 
 def recent_discoveries(limit: int = 20) -> list:
-    if not os.path.exists(DISCOVERIES_FILE):
+    dfile = discoveries_file()
+    if not os.path.exists(dfile):
         return []
     try:
-        with open(DISCOVERIES_FILE, "r", encoding="utf-8", errors="replace") as f:
+        with open(dfile, "r", encoding="utf-8", errors="replace") as f:
             lines = f.readlines()
     except Exception:
         return []
@@ -208,13 +287,14 @@ def auto_synthesize_checkpoint(reason: str = "sprint budget exhausted", phase: s
     for rec in recent_discoveries(30):
         text = rec.get("text", "")
         kind = rec.get("kind", "auto")
+        # Only promote human-noted facts. auto/harvest lines stay in discoveries.jsonl.
         if kind == "rejected":
             if text and not _has_fact(data["rejected"], text.split(" :: ")[0]):
                 parts = text.split(" :: ", 1)
                 data["rejected"].append({"try": parts[0], "why": parts[1] if len(parts) > 1 else ""})
-        else:
+        elif kind == "confirmed":
             if text and not _has_fact(data["confirmed"], text):
-                data["confirmed"].append({"fact": text, "how": rec.get("source", "auto")})
+                data["confirmed"].append({"fact": text, "how": rec.get("source", "note")})
     if not data.get("next_action"):
         data["next_action"] = "Load checkpoint.json and continue from the latest confirmed facts."
     data["sprint"] = {"status": "yield", "reason": reason}
@@ -223,8 +303,9 @@ def auto_synthesize_checkpoint(reason: str = "sprint budget exhausted", phase: s
     return data
 
 
-def render_handover(data: dict = None, output_file: str = HANDOVER_FILE) -> str:
+def render_handover(data: dict = None, output_file: str = None) -> str:
     data = data or load_checkpoint()
+    output_file = output_file or handover_file()
     confirmed = data.get("confirmed") or []
     rejected = data.get("rejected") or []
     artifacts = data.get("artifacts") or []
@@ -282,9 +363,10 @@ def render_handover(data: dict = None, output_file: str = HANDOVER_FILE) -> str:
 
 
 def _detect_phase() -> str:
-    if os.path.exists("runbook.yaml"):
+    path = os.path.join(project_root(), "runbook.yaml")
+    if os.path.exists(path):
         try:
-            with open("runbook.yaml", "r", encoding="utf-8") as f:
+            with open(path, "r", encoding="utf-8") as f:
                 for line in f:
                     if line.strip().startswith("current_state:"):
                         return line.split(":", 1)[1].strip().strip('"').strip("'")
@@ -308,10 +390,11 @@ def checkpoint_prompt_slice(max_confirmed: int = 12) -> str:
 
 
 def read_sprint_count() -> int:
-    if not os.path.exists(BUDGET_FILE):
+    path = budget_file()
+    if not os.path.exists(path):
         return 0
     try:
-        with open(BUDGET_FILE, "r") as f:
+        with open(path, "r") as f:
             return int(f.read().strip() or "0")
     except Exception:
         return 0
@@ -319,7 +402,7 @@ def read_sprint_count() -> int:
 
 def reset_sprint_budget():
     ensure_state_dir()
-    with open(BUDGET_FILE, "w") as f:
+    with open(budget_file(), "w") as f:
         f.write("0\n")
 
 
@@ -335,7 +418,7 @@ def sprint_guard(is_explore: bool = True) -> str:
         return "ok"
     ensure_state_dir()
     cnt = read_sprint_count() + 1
-    with open(BUDGET_FILE, "w") as f:
+    with open(budget_file(), "w") as f:
         f.write(str(cnt))
     if cnt >= MAX_SPRINT_STEPS:
         return "yield"

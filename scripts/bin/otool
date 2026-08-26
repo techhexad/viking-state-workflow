@@ -1,7 +1,14 @@
 #!/usr/bin/env bash
 # Viking Safe Shim for otool
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-REAL_BIN="$(which -a otool | grep -v "$SCRIPT_DIR/bin" | head -n 1)"
+REAL_BIN="$(which -a otool 2>/dev/null | grep -v "$SCRIPT_DIR/bin" | head -n 1)"
 [ -z "$REAL_BIN" ] && REAL_BIN="/usr/bin/otool"
+
+if [ -n "$VIKING_BRIDGE_ACTIVE" ]; then
+  exec "$REAL_BIN" "$@"
+fi
+
+export VIKING_BRIDGE_ACTIVE=1
 DEST_URI="viking://knowledge/auto_intercept/otool_$(date +%s).log"
-python3 "$SCRIPT_DIR/viking_bridge.py" run --dest "$DEST_URI" --cmd "$REAL_BIN $*"
+CMD="$(printf '%q ' "$REAL_BIN" "$@")"
+python3 "$SCRIPT_DIR/viking_bridge.py" run --dest "$DEST_URI" --cmd "$CMD"

@@ -140,8 +140,9 @@ python3 scripts/statem_supervisor.py \
   --sprint-goal "<one question>" \
   --max-retries 3
 
-# Sprint DONE ≠ phase complete
+# Sprint DONE ≠ phase complete. Empty checkpoint is rejected.
 python3 scripts/statem_driver.py --advance --gate-check
+# Emergency only: python3 scripts/statem_driver.py --advance --force
 ```
 
 `statem_supervisor.py` resets the sprint budget and injects a checkpoint slice into the child prompt. A child exit 0 does **not** advance the runbook.
