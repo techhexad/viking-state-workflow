@@ -10,6 +10,10 @@ import sys
 import argparse
 from datetime import datetime
 
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, SCRIPT_DIR)
+import working_set
+
 
 MARKDOWN_TEMPLATE = """# Session Distillation & Handover Report
 
@@ -76,71 +80,63 @@ def auto_detect_state(runbook_path="runbook.yaml") -> str:
 
 def harvest_latest_discoveries(workspace_dir=".", output_file="HANDOVER.md") -> str:
     """
-    Autonomous Blackbox Flight-Recorder:
-    Scans the latest subagent session log and automatically salvages all technical discoveries
-    (hex offsets, symbols, grep hits, patch verification states) into HANDOVER.md.
-    Guarantees 100% zero data loss even if a subagent is killed abruptly at step 20!
+    Salvage high-value lines from the newest DSH session log and MERGE them
+    into discoveries.jsonl / checkpoint.json. Never clobber confirmed facts.
+    HANDOVER.md is re-rendered from the checkpoint (projection), not from the scrape.
     """
     import subprocess, glob, re, json
-    
-    # 1. Find latest DSH session log
+
     session_files = glob.glob(os.path.expanduser("~/.dsh/sessions/**/session.jsonl.zstd"), recursive=True) + \
                     glob.glob(os.path.expanduser("~/.dsh/sessions/**/session.jsonl"), recursive=True)
-    if not session_files:
-        return output_file
-    
-    session_files.sort(key=os.path.getmtime, reverse=True)
-    latest_session = session_files[0]
-    
-    # 2. Extract recent lines
-    raw_lines = []
-    try:
-        if latest_session.endswith(".zstd"):
-            proc = subprocess.run(["zstd", "-dc", latest_session], capture_output=True, text=True)
-            raw_lines = proc.stdout.splitlines()
-        else:
-            with open(latest_session, "r", encoding="utf-8", errors="replace") as f:
-                raw_lines = f.readlines()
-    except Exception:
-        return output_file
-    
-    # 3. Parse tool results for high-value technical anchors
-    salvaged_discoveries = []
-    keyword_pat = re.compile(r"(foff|vaddr|0x[0-9a-fA-F]{4,}|patch|offset|tbnz|tbz|csel|Status:|codesign|MATCH|MATCH!|entry|symbol)", re.IGNORECASE)
-    
-    for line in raw_lines[-100:]:
+    salvaged = []
+    if session_files:
+        session_files.sort(key=os.path.getmtime, reverse=True)
+        latest_session = session_files[0]
+        raw_lines = []
         try:
-            entry = json.loads(line)
-            # Check tool results or message content
-            text_content = ""
-            if entry.get("type") == "tool/result":
-                for item in entry.get("data", {}).get("message", {}).get("content", []):
-                    if item.get("type") == "tool-result":
-                        for c in item.get("content", []):
-                            text_content += c.get("text", "") + "\n"
-            elif entry.get("type") == "assistant/message":
-                for item in entry.get("data", {}).get("message", {}).get("content", []):
-                    if item.get("type") == "text":
-                        text_content += item.get("text", "") + "\n"
-            
-            for subline in text_content.splitlines():
-                s = subline.strip()
-                if s and len(s) < 200 and keyword_pat.search(s):
-                    if not any(s == x for x in salvaged_discoveries):
-                        salvaged_discoveries.append(s)
+            if latest_session.endswith(".zstd"):
+                proc = subprocess.run(["zstd", "-dc", latest_session], capture_output=True, text=True)
+                raw_lines = proc.stdout.splitlines()
+            else:
+                with open(latest_session, "r", encoding="utf-8", errors="replace") as f:
+                    raw_lines = f.readlines()
         except Exception:
-            continue
-    
-    # 4. Write to HANDOVER.md
-    if salvaged_discoveries:
-        project_name = os.path.basename(os.path.abspath(workspace_dir))
-        state = auto_detect_state()
-        m_list = ["Step execution intercepted by 20-step budget watchdog."]
-        d_list = salvaged_discoveries[-15:]  # Top 15 most recent technical facts
-        n_list = ["Load technical anchors from Technical Discoveries and apply target patch."]
-        distill(project_name, state, m_list, d_list, n_list, output_file)
-        print(f"🛡️  \033[1;32m[Blackbox Auto-Harvest]\033[0m Successfully salvaged {len(d_list)} technical facts into {output_file}")
-    
+            raw_lines = []
+
+        keyword_pat = re.compile(
+            r"(foff|vaddr|0x[0-9a-fA-F]{4,}|patch|offset|tbnz|tbz|csel|Status:|codesign|MATCH|symbol)",
+            re.IGNORECASE,
+        )
+        for line in raw_lines[-100:]:
+            try:
+                entry = json.loads(line)
+                text_content = ""
+                if entry.get("type") == "tool/result":
+                    for item in entry.get("data", {}).get("message", {}).get("content", []):
+                        if item.get("type") == "tool-result":
+                            for c in item.get("content", []):
+                                text_content += c.get("text", "") + "\n"
+                elif entry.get("type") == "assistant/message":
+                    for item in entry.get("data", {}).get("message", {}).get("content", []):
+                        if item.get("type") == "text":
+                            text_content += item.get("text", "") + "\n"
+                for subline in text_content.splitlines():
+                    s = subline.strip()
+                    if s and len(s) < 200 and keyword_pat.search(s) and s not in salvaged:
+                        salvaged.append(s)
+            except Exception:
+                continue
+
+    added = 0
+    for s in salvaged:
+        if working_set.append_discovery("harvest", s, source="session-log"):
+            added += 1
+    data = working_set.auto_synthesize_checkpoint(
+        reason="session harvest merge",
+        phase=auto_detect_state(),
+    )
+    working_set.render_handover(data, output_file=output_file)
+    print(f"🛡️  [Working Set] merged {added} harvested line(s) into checkpoint.json → {output_file}")
     return output_file
 
 
@@ -152,9 +148,15 @@ def main():
     parser.add_argument("--discoveries", help="Semicolon-separated technical discoveries")
     parser.add_argument("--next-actions", help="Semicolon-separated immediate next steps")
     parser.add_argument("--output", default="HANDOVER.md", help="Output markdown path")
-    parser.add_argument("--harvest", action="store_true", help="Auto-harvest latest discoveries from session log")
+    parser.add_argument("--harvest", action="store_true", help="Merge session-log hits into checkpoint.json (does not clobber)")
+    parser.add_argument("--from-checkpoint", action="store_true", help="Render HANDOVER.md from checkpoint.json only")
 
     args = parser.parse_args()
+
+    if args.from_checkpoint:
+        working_set.render_handover(output_file=args.output)
+        print(f"✨ Rendered {args.output} from .viking_state/checkpoint.json")
+        return
 
     if args.harvest:
         harvest_latest_discoveries(output_file=args.output)

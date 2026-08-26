@@ -205,7 +205,8 @@ def generate_agents_md(project_name: str, task_type: str, user_prompt: str, targ
 - **Toolchain Path**: `{skill_dir}`
 - **Runbook**: `runbook.yaml`
 - **VFS Prefix**: `viking://knowledge/{project_name}/`
-- **Handover File**: `HANDOVER.md`
+- **Handover File**: `HANDOVER.md` (human projection of `.viking_state/checkpoint.json`)
+- **Working Set**: `.viking_state/checkpoint.json` + `.viking_state/discoveries.jsonl`
 
 ---
 
@@ -216,14 +217,14 @@ def generate_agents_md(project_name: str, task_type: str, user_prompt: str, targ
 3. **彻底强杀旧进程 (Mandatory Force-Kill)**：在构建、补丁、重签或启动测试前，**严禁使用普通 `pkill`**（macOS 守护进程会忽略 SIGTERM）。必须强制执行 `pkill -9 -f "<app_name>" 2>/dev/null || killall -9 "<app_name>" 2>/dev/null || true`，确保内存完全干净！
 4. **严禁原始十六进制 Dump 毒化上下文 (Anti-Hex-Dump Shield)**：严禁在终端大段打印 `memory read` / `xxd` / `hexdump` 原始十六进制数据（大量零字节与重复十六进制会导致大模型注意力崩溃输出 `0,0,0,0...` 退化）。所有内存 Dump 必须使用 Python 脚本解析出关键结构，或通过管道转存至 `viking://`！
 5. **调试重签必须注入 get-task-allow (AMFI & LLDB Bypass)**：重签 App 用于 LLDB 测试时，严禁使用裸 `codesign -s -`（会导致 AMFI 拦截报 error 9）。必须注入 `/tmp/debug_entitlements.plist`（包含 `get-task-allow` + `disable-library-validation`）！
-6. **子智能体 20 步硬预算与主动让权 (Subagent 20-Step Hard Budget)**：每个子 Agent 在单个阶段内的执行步数**严格限制在 20 步以内**！若在第 15~20 步仍未达成目标，子 Agent 必须立刻主动停机并输出 `GATE FAIL: <原因>` 让权给主控。
-7. **单向极简交接与立即终结 (One-Shot Compact Exit)**：子 Agent 完工或让权时，仅更新 HANDOVER.md，输出 ≤5 行极简结构化结论，并**立即彻底结束会话断连**。严禁输出长篇大论或与调度器进行多轮中继闲聊（No Ping-Pong），确保本地 GPU 显存与算力瞬间 100% 释放给主控！
+6. **短冲刺子 Agent（Micro-Sprint）**：每个子 Agent 只做一道小题（`.viking_state/checkpoint.json` 的 `next_action`），禁止一次做完整个 runbook 阶段。探索类工具（`run`/`grep`/`ocr`/`capture-ocr`）单次冲刺上限 8 次；第 6–7 次起 bridge 拒绝探索、只准 `note`/`checkpoint`；第 8 次自动结晶 checkpoint 并以退出码 20 让权。`note`/`checkpoint`/`doctor`/`sprint-reset` 不计入预算。
+7. **工作集接力（Working Set）**：机器接力信源是 `.viking_state/checkpoint.json` 与 `discoveries.jsonl`（只追加合并，禁止覆盖已确认事实）。`HANDOVER.md` 只是给人看的渲染。子 Agent 结束时只输出 ≤5 行：`SPRINT_STATUS: DONE|YIELD|FAIL` / `CONFIRMED:` / `REJECTED:` / `NEXT:`，然后立即断连。严禁把反汇编全文或聊天记录交给下一任。
 8. **Accessibility UI 零录屏权限极速验证 (Accessibility Inspector)**：UI 校验优先通过 `viking_bridge.py capture-ocr` 的 Accessibility 引擎读取文字树（无需录屏权限、毫秒级响应）；若遇 TCC 权限拦截，按终端提示开启「辅助功能」后按回车重试。
 9. **多工作区进程物理隔离 (Multi-Workspace Process Shield)**：启动目标 App 前，必须清理其他工作区的同名常驻进程，严禁触发 macOS LaunchServices URL 跨工程静默路由劫持！
 10. **本机架构优先渐进策略 (Native-First Architecture Strategy)**：面对 Universal 胖二进制时，**第一轮必须 100% 聚焦于本机原生架构（`uname -m`，如 Apple Silicon 下只跑 arm64）**！严禁在首轮分析或反编译非本机架构（x86_64）。待本机架构验证通过后，再按需镜像同步到另一架构并合成 Universal 胖二进制！
-11. **监督模式职责分离 (Mandatory Subagent Dispatch)**：在监督模式下，主控 Agent 仅负责状态机编排与 Gate 裁决，**严禁主控亲自执行底层命令**，必须通过 `subagent` 工具派发独立 Subagent 执行；
-9. **状态机驱动**：严格按照 `runbook.yaml` 的阶段推进，每阶段必须通过 Gate 校验；
-10. **会话主动交接**：单会话轮次过多时主动调用 `session_compactor.py` 存盘并开新会话接力。
+11. **监督模式职责分离 (Mandatory Subagent Dispatch)**：主控只做拆题、派短冲刺、读 checkpoint、判 Gate；**严禁主控亲自跑底层探索命令**，必须通过 `subagent` 工具派发独立 Subagent。
+12. **状态机驱动**：严格按照 `runbook.yaml` 的阶段推进；短冲刺 DONE ≠ 阶段完成，阶段推进必须 `statem_driver.py --advance --gate-check`。
+13. **系统稳定性优先**：防止上下文爆炸是物理底线，查看细节一律使用 `viking_bridge.py grep`，禁止裸 cat 大文件。
 {recipe_section}
 ---
 
@@ -239,14 +240,28 @@ python3 {skill_dir}/viking_bridge.py doctor
 # 查看当前任务阶段与 Gate 条件
 python3 {skill_dir}/statem_driver.py --status
 
-# 完成当前阶段后推进至下一阶段
-python3 {skill_dir}/statem_driver.py --advance
+# 完成当前阶段后推进至下一阶段（短冲刺 DONE 不够，必须过 Gate）
+python3 {skill_dir}/statem_driver.py --advance --gate-check
+```
+
+### 1b. 工作集与短冲刺 (Working Set + Micro-Sprint)
+```bash
+# 派发前重置冲刺预算，并注入一道小题（supervisor 合成 prompt 时会自动 sprint-reset）
+python3 {skill_dir}/statem_supervisor.py --runbook runbook.yaml --sprint-goal "<one question>"
+
+# 查看 / 写入工作集（不计入探索预算）
+python3 {skill_dir}/viking_bridge.py checkpoint
+python3 {skill_dir}/viking_bridge.py note --confirmed "<fact>" --rejected "<dead-end>" --next "<next question>"
+python3 {skill_dir}/viking_bridge.py sprint-status
+python3 {skill_dir}/session_compactor.py --from-checkpoint --output HANDOVER.md
 ```
 
 {tmpl['custom_commands'].format(skill_dir=skill_dir, project=project_name)}
 
 ### 3. 阶段成果存盘与会话压缩 (Session Handover)
+优先用 checkpoint 渲染；不要把 harvest 当唯一信源。
 ```bash
+python3 {skill_dir}/session_compactor.py --from-checkpoint --output HANDOVER.md
 python3 {skill_dir}/session_compactor.py \\
   --project "{project_name}" \\
   --milestones "<已完成的阶段里程碑>" \\

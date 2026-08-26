@@ -20,6 +20,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 SKILL_ROOT = os.path.dirname(SCRIPT_DIR)
 sys.path.insert(0, SCRIPT_DIR)
 import statem_driver
+import working_set
 
 
 # ==============================================================================
@@ -67,34 +68,49 @@ def classify_error(output_log: str) -> tuple:
 # Subagent Prompt Synthesizer
 # ==============================================================================
 
-def generate_subagent_prompt(project: str, state_name: str, state_meta: dict, failure_context: str = None) -> str:
+def generate_subagent_prompt(project: str, state_name: str, state_meta: dict,
+                             failure_context: str = None, sprint_goal: str = None) -> str:
     desc = state_meta.get("description", "")
     gate = state_meta.get("gate", state_meta.get("gates", ""))
-    
-    prompt = f"""You are the specialized Subagent for Phase [{state_name}] in project [{project}].
+    working_set.reset_sprint_budget()
+    checkpoint_slice = working_set.checkpoint_prompt_slice()
+    ck = working_set.load_checkpoint()
+    question = sprint_goal or ck.get("next_action") or (
+        f"Do ONLY the next smallest slice of: {desc}"
+    )
 
-## Your Mission:
-{desc}
+    prompt = f"""You are a micro-sprint Subagent for Phase [{state_name}] in project [{project}].
+You answer ONE question, persist the working set, then stop. You do not finish the whole phase.
 
-## Gate Requirements (Success Criteria):
+## This sprint's single question:
+{question}
+
+## Working set (do not re-derive; do not reload chat history):
+{checkpoint_slice}
+
+## Phase gate (NOT your sprint goal — parent judges this later):
 {gate}
 
-## Operational Rules & Strict Step Budget:
-1. 🛑 **Hard Step Budget (最大 20 步硬熔断)**: 你在当前阶段的执行预算严格限制在 **20 步** 以内！严禁在单会话内死磕超过 20 步。如果在第 15 步仍未达成目标，必须立即停止探索，将已定位地址和阻碍写入 HANDOVER.md，输出 `GATE FAIL: <原因>` 并正常退出。监督器会自动销毁你的会话，拉起全新的下一任子智能体接力，彻底防止长跑退化！
-2. 🛡️ **严禁内存 Dump 毒化上下文 (Anti-Hex-Dump Shield)**: 严禁在终端大段打印 `memory read` / `xxd` / `hexdump` 原始十六进制（大量零字节会导致大模型注意力崩溃输出 0,0,0 退化）。所有内存 Dump 必须使用 Python 解析出关键结构或管道写入 `viking://`！
-3. 🧹 **彻底强杀旧进程 (Mandatory Force-Kill)**: 在构建、补丁、重签或启动测试前，必须强制执行 `pkill -9 -f "<app_name>" 2>/dev/null || killall -9 "<app_name>" 2>/dev/null || true`，确保内存完全干净！
-4. 📦 **重型命令必须进 Viking**: 所有反汇编、长日志必须使用 `python3 {SCRIPT_DIR}/viking_bridge.py run --dest "viking://knowledge/{project}/..." --cmd "..."`。
-5. ⚡ **单向极简交接与立即终结 (One-Shot Compact Exit)**: 达成 Gate 或熔断退出时，仅需更新 HANDOVER.md，输出 ≤5 行极简结构化结论（如 `GATE_STATUS: PASS | PATCHES: [0x5445C7, 0x51E050] | VERIFY: OK`），并**立即彻底结束会话退出**。严禁输出长篇废话或与调度器进行多轮 Ping-Pong 中继闲聊，确保本地 GPU 显存与算力瞬间 100% 释放给主控！
-6. 🍏 **本机架构优先渐进策略 (Native-First Architecture)**: 面对 Universal 胖二进制时，**第一轮必须 100% 聚焦于本机原生架构（`uname -m`，如 Apple Silicon 下只跑 arm64）**！严禁在首轮分析或反编译非本机架构（x86_64）。待本机架构验证通过后，再按需镜像同步到另一架构并合成 Universal 胖二进制！
+## Rules:
+1. One question only. No unrelated exploration.
+2. Exploration budget: at most 8 `viking_bridge.py` explore calls (`run`/`grep`/`ocr`/`capture-ocr`). `note`/`checkpoint`/`doctor` do not count. Calls 6–7 are refused (drain). Call 8 auto-writes checkpoint.json and exits 20.
+3. Persist every confirmed address/dead-end immediately:
+   `python3 {SCRIPT_DIR}/viking_bridge.py note --confirmed "<fact>" --rejected "<dead-end>" --next "<next question>"`
+4. Heavy output must go through `python3 {SCRIPT_DIR}/viking_bridge.py run --dest "viking://knowledge/{project}/..." --cmd "..."`.
+5. End with ≤5 lines, then disconnect (no ping-pong):
+SPRINT_STATUS: DONE|YIELD|FAIL
+CONFIRMED: ...
+REJECTED: ...
+NEXT: ...
+6. Native-first: on Universal binaries, this sprint stays on `uname -m` only.
 """
 
     if failure_context:
         prompt += f"""
 ---
 > [!WARNING]
-> ### ⚠️ PREVIOUS ATTEMPT FAILED - LEARN AND ADJUST:
+> ### Previous sprint failed — adjust:
 > {failure_context}
-> Avoid repeating this exact failure. Modify the approach accordingly.
 """
     return prompt
 
@@ -103,7 +119,20 @@ def generate_subagent_prompt(project: str, state_name: str, state_meta: dict, fa
 # Supervisor Execution Engine
 # ==============================================================================
 
-def supervise_phase(runbook_path: str, max_retries: int = 3, auto_execute_cmd: str = None):
+def _sprint_status_from_output(output: str, returncode: int) -> str:
+    if returncode == 20 or re.search(r"SPRINT_STATUS:\s*YIELD", output, re.IGNORECASE):
+        return "YIELD"
+    if returncode == 18:
+        return "DRAIN"
+    if re.search(r"SPRINT_STATUS:\s*FAIL|GATE FAIL", output, re.IGNORECASE):
+        return "FAIL"
+    if re.search(r"SPRINT_STATUS:\s*DONE", output, re.IGNORECASE) or returncode == 0:
+        return "DONE"
+    return "UNKNOWN"
+
+
+def supervise_phase(runbook_path: str, max_retries: int = 3, auto_execute_cmd: str = None,
+                    sprint_goal: str = None):
     data = statem_driver.load_runbook(runbook_path)
     project = data.get("task_name", data.get("name", "project"))
     curr_state = statem_driver.get_current_state(data)
@@ -113,6 +142,7 @@ def supervise_phase(runbook_path: str, max_retries: int = 3, auto_execute_cmd: s
     print("\n" + "=" * 65)
     print(f"🎯  [StateM Supervisor] Managing Phase: \033[1;34m{curr_state}\033[0m")
     print(f"📋  Objective: {state_meta.get('description', '')}")
+    print(f"🧩  Sprint goal: {sprint_goal or working_set.load_checkpoint().get('next_action') or '(next smallest slice)'}")
     print("=" * 65)
 
     if curr_state == "completed":
@@ -127,32 +157,37 @@ def supervise_phase(runbook_path: str, max_retries: int = 3, auto_execute_cmd: s
             project=project,
             state_name=curr_state,
             state_meta=state_meta,
-            failure_context="\n".join(failure_history) if failure_history else None
+            failure_context="\n".join(failure_history) if failure_history else None,
+            sprint_goal=sprint_goal,
         )
 
-        print(f"\n🚀 [Attempt {retry_count + 1}/{max_retries}] Launching Subagent for [{curr_state}]...")
+        print(f"\n🚀 [Sprint attempt {retry_count + 1}/{max_retries}] Launching micro-sprint for [{curr_state}]...")
         
-        # If an external command runner is provided, execute it; otherwise print instructions
         if auto_execute_cmd:
             proc = subprocess.run(auto_execute_cmd, shell=True, capture_output=True, text=True)
             output = proc.stdout + "\n" + proc.stderr
             returncode = proc.returncode
         else:
-            print("📝 Synthesized Subagent Directives:")
+            print("📝 Synthesized Subagent Directives (inject this into a NEW subagent, then stop):")
             print("-" * 50)
             print(subagent_prompt)
             print("-" * 50)
-            return 0  # In agent environment, prompt is consumed by agent engine
-
-        # Evaluate output
-        if returncode == 0:
-            print(f"\n✅ [StateM Supervisor] Phase [{curr_state}] passed gate verification!")
-            statem_driver.advance_state(runbook_path)
+            print("ℹ️  Sprint DONE ≠ phase complete. Advance the phase only via:")
+            print(f"    python3 {SCRIPT_DIR}/statem_driver.py --advance --gate-check")
             return 0
 
-        # Classify Error
+        sprint_status = _sprint_status_from_output(output, returncode)
+        print(f"\n🔍 Sprint result: [{sprint_status}] rc={returncode}")
+
+        if sprint_status in ("DONE", "YIELD", "DRAIN"):
+            if not os.path.exists(working_set.CHECKPOINT_FILE):
+                working_set.auto_synthesize_checkpoint(reason=f"sprint {sprint_status}")
+            print("✅ Working set is on disk (.viking_state/checkpoint.json).")
+            print("⛔ Not advancing the runbook phase. Parent must gate-check, then dispatch the next sprint.")
+            return 0 if sprint_status == "DONE" else 20
+
         category, err_type, err_desc = classify_error(output)
-        print(f"\n🔍 Error Classification: [{category}] - {err_desc}")
+        print(f"🔍 Error Classification: [{category}] - {err_desc}")
 
         if category == "FATAL":
             print("\n" + "🛑" * 30)
@@ -162,7 +197,6 @@ def supervise_phase(runbook_path: str, max_retries: int = 3, auto_execute_cmd: s
             print("🛑" * 30 + "\n")
             return 2
 
-        # Recoverable error
         retry_count += 1
         failure_msg = f"- Attempt #{retry_count} failed on error '{err_type}': {err_desc}"
         failure_history.append(failure_msg)
@@ -182,6 +216,7 @@ def main():
     parser.add_argument("--max-retries", type=int, default=3, help="Max retries before human escalation")
     parser.add_argument("--classify", help="Test error classification on a log file")
     parser.add_argument("--exec", help="Optional command to run subagent execution")
+    parser.add_argument("--sprint-goal", help="Single-question goal for this micro-sprint")
 
     args = parser.parse_args()
 
@@ -195,7 +230,7 @@ def main():
             print(f"File not found: {args.classify}")
         sys.exit(0)
 
-    sys.exit(supervise_phase(args.runbook, args.max_retries, args.exec))
+    sys.exit(supervise_phase(args.runbook, args.max_retries, args.exec, args.sprint_goal))
 
 
 if __name__ == "__main__":

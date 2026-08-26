@@ -88,6 +88,7 @@ viking-state-workflow/
 │   ├── statem_driver.py              # 纯标准库零依赖 StateM 状态机驱动引擎
 │   ├── statem_supervisor.py          # 串行 Subagent 编排监督器与错误分类决策引擎
 │   ├── session_compactor.py          # 会话状态提炼与主动接力工具
+│   ├── working_set.py                # checkpoint.json + discoveries.jsonl + 短冲刺预算
 │   ├── mac_ocr.swift                 # 原生 macOS Vision OCR 提取器 (零依赖 / 零显存)
 │   ├── viking_env.sh                 # 环境变量注入脚本 (激活透明拦截垫片)
 │   └── bin/                          # 透明物理拦截垫片 (lldb, objdump, otool)
@@ -174,6 +175,7 @@ python3 scripts/statem_driver.py --advance
 ```bash
 python3 scripts/statem_supervisor.py \
   --runbook runbook.yaml \
+  --sprint-goal "<一道小题>" \
   --max-retries 3
 ```
 
@@ -183,9 +185,10 @@ python3 scripts/statem_supervisor.py \
 
 Viking State Workflow 内置了五大工业级执行防线，确保长程任务 100% 确定性收敛与零数据丢失：
 
-1. **两阶段优雅停机与黑匣子自动打捞 (Two-Phase Graceful Drain & Auto-Harvest)**：
-   * **第 18~19 步（黄牌倒计时 HUD）**：在工具返回顶部强制弹出倒计时通牒，促使子 Agent 停止探索并将已定位的物理偏移与函数符号存盘至 `HANDOVER.md`。
-   * **第 20 步（红牌物理熔断 + 黑匣子打捞）**：外部看门狗强制停机，并自动触发 `session_compactor.py --harvest` 瞬间扫描原始会话黑匣子（`session.jsonl.zstd`），即使子 Agent 突发被杀也能 **100% 自动打捞关键战果**，实现数据零丢失！
+1. **工作集 + 短冲刺排水 (Working Set + Micro-Sprint Drain)**：
+   * 每个子 Agent 只答 **一道小题**，不是整个 runbook 阶段。对话里只留 checkpoint.json 和最近 1～2 次工具摘要。
+   * 探索类调用（`run`/`grep`/`ocr`/`capture-ocr`）单次冲刺上限 8 次。第 6–7 次拒绝继续探索（只准写盘）。第 8 次在自动合并 `.viking_state/checkpoint.json` 之后以退出码 20 让权。
+   * 高价值工具命中当时追加进 `discoveries.jsonl`。`HANDOVER.md` 只是 checkpoint 的人读投影，不是唯一接力信源。
 2. **本机架构优先渐进策略 (Native-First Progressive Architecture Strategy)**：
    * 面对 Universal (Fat) 胖二进制时，第一轮 **100% 聚焦于本机原生架构（如 Apple Silicon 下只跑 arm64）**，显存与步数消耗骤降 80%。
    * 本机架构验证翻绿交付后，驱动器自动提供“一键镜像同步到 x86_64”选项，秒级合成 Universal 胖二进制。
@@ -200,16 +203,12 @@ Viking State Workflow 内置了五大工业级执行防线，确保长程任务 
 * **安全熔断**：遇到系统权限（SIP）、缺失物料、基建宕机等致命错误时，**立即停机并请求人工介入**。
 
 #### 9. 主动会话压缩与无缝接力 (Session Handover)
-当多轮会话累积过长（> 20k Tokens）时，将关键技术发现提炼为极简报告（< 500 Tokens）：
+当多轮会话累积过长时，先把工作集落盘，再从 checkpoint.json 开新冲刺——不要把聊天记录交给下一任：
 ```bash
-python3 scripts/session_compactor.py \
-  --project "myproject" \
-  --milestones "完成第一阶段目标; Gate 门禁验证通过" \
-  --discoveries "锁定核心地址 0x1004ffa38; 确认真 NOP 为 1F 20 03 D5" \
-  --next-actions "对目标二进制写入 4 字节补丁并重签名" \
-  --output HANDOVER.md
+python3 scripts/viking_bridge.py note --confirmed "锁定核心地址 0x1004ffa38" --next "对该地址做 XREF"
+python3 scripts/session_compactor.py --from-checkpoint --output HANDOVER.md
 ```
-在新会话（Clean New Chat）中直接加载 `HANDOVER.md`，即可满血继续推进！
+下一冲刺只加载 `.viking_state/checkpoint.json` 与 `runbook.yaml`。
 
 ---
 
@@ -299,7 +298,7 @@ python3 scripts/session_compactor.py \
 
 > **🤖 Agent 自动自愈接管流程**：
 > “检测到当前工作区已存在状态机 `runbook.yaml`，正在自动接力执行：
-> 1. ✅ **自动读取规范与记忆**：载入 `AGENTS.md`（锁定 Subagent 派发红线）与 `HANDOVER.md`（继承已确认结论与避坑点）；
+> 1. ✅ **自动读取规范与记忆**：载入 `AGENTS.md`（红线）、`.viking_state/checkpoint.json`（工作集）与 `HANDOVER.md`（人读摘要）；
 > 2. 🎯 **自动对齐断点阶段**：运行 `statem_driver.py --status` 发现当前处于阶段 5 (`verify_and_deliver`)；
 > 3. 🚀 **自动拉起子 Agent 继续冲刺**：正在以监督自愈模式派发独立 Subagent 执行阶段 5 直至 `completed` 终态并交付！”
 

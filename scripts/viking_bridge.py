@@ -21,6 +21,8 @@ import urllib.request
 import urllib.error
 import re
 
+import working_set
+
 MAX_INLINE_LINES = int(os.environ.get("VIKING_MAX_INLINE_LINES", "40"))
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 LOCAL_VFS_BACKUP = os.path.expanduser("~/.openviking/local_vfs")
@@ -184,6 +186,7 @@ def get_vfs(uri: str):
 
 
 def grep_vfs(uri: str, pattern: str, context_lines=5):
+    enforce_explore_budget()
     content = get_vfs(uri)
     if not content or content.startswith("[ERROR]"):
         print(content or f"[ERROR] Empty content in {uri}")
@@ -205,55 +208,39 @@ def grep_vfs(uri: str, pattern: str, context_lines=5):
         return
 
     print(f"[GREP] Found {len(matches)} match(es) for '{pattern}' in {uri}:\n")
+    crystallized = 0
     for match_num, (line_no, start_line, snippet) in enumerate(matches[:5], 1):
         print(f"--- Match #{match_num} (around line {line_no}) ---")
         for offset, s_line in enumerate(snippet):
             curr_no = start_line + offset
             prefix = ">>" if curr_no == line_no else "  "
             print(f"{prefix} {curr_no:6d}: {s_line}")
+            if curr_no == line_no and working_set.append_discovery("grep", s_line, source=uri):
+                crystallized += 1
         print()
     if len(matches) > 5:
         print(f"... and {len(matches) - 5} more matches truncated.")
+    if crystallized:
+        print(f"📌 Crystallized {crystallized} hit(s) into .viking_state/discoveries.jsonl")
 
 
-BUDGET_FILE = ".subagent_step_budget"
-MAX_SUBAGENT_STEPS = 20
-
-
-def record_and_check_budget():
-    """Two-Phase Graceful Drain + Autonomous Blackbox Log Harvesting Watchdog."""
-    cnt = 0
-    if os.path.exists(BUDGET_FILE):
-        try:
-            with open(BUDGET_FILE, "r") as f:
-                cnt = int(f.read().strip())
-        except Exception:
-            cnt = 0
-    cnt += 1
-    with open(BUDGET_FILE, "w") as f:
-        f.write(str(cnt))
-    
-    if cnt in [18, 19]:
-        remaining = MAX_SUBAGENT_STEPS - cnt + 1
-        print("\n" + "⚠️ " * 30)
-        print(f"⚠️  \033[1;33m[BUDGET HUD: STEP {cnt}/{MAX_SUBAGENT_STEPS} - ONLY {remaining} STEPS LEFT]\033[0m")
-        print("⚠️  请立即停止扩散探索！将已定位的全部物理偏移、函数符号与阻碍写入 HANDOVER.md！")
-        print("⚠️ " * 30 + "\n")
-    elif cnt >= MAX_SUBAGENT_STEPS:
-        print("\n" + "🛑" * 35)
-        print(f"🛑 \033[1;31m[PHYSICAL STEP-BUDGET WATCHDOG: {cnt}/{MAX_SUBAGENT_STEPS} STEPS REACHED]\033[0m")
-        print("🛑 达到 20 步硬预算上限！触发两阶段优雅停机与黑匣子自动打捞。")
-        print("🛑" * 35 + "\n")
-        # Trigger blackbox log harvester as ultimate safeguard
-        try:
-            import session_compactor
-            session_compactor.harvest_latest_discoveries(output_file="HANDOVER.md")
-        except Exception:
-            pass
+def enforce_explore_budget():
+    """Refuse or yield exploration so the working set is on disk before a sprint dies."""
+    status = working_set.sprint_guard(is_explore=True)
+    hud = working_set.sprint_hud(status)
+    if hud:
+        print(hud)
+    if status == "drain":
+        sys.exit(18)
+    if status == "yield":
+        working_set.auto_synthesize_checkpoint(reason="sprint exploration budget exhausted")
+        print("SPRINT_STATUS: YIELD")
+        print(f"NEXT: {working_set.load_checkpoint().get('next_action', '')}")
+        sys.exit(20)
 
 
 def run_command(cmd: str, dest_uri: str, max_lines=MAX_INLINE_LINES):
-    record_and_check_budget()
+    enforce_explore_budget()
     print(f"[EXECUTING] {cmd}")
     proc = subprocess.run(cmd, shell=True, capture_output=True, text=True)
     combined_output = proc.stdout
@@ -263,6 +250,9 @@ def run_command(cmd: str, dest_uri: str, max_lines=MAX_INLINE_LINES):
     lines = combined_output.splitlines()
     if len(lines) <= max_lines:
         print(combined_output)
+        working_set.crystallize_text(combined_output, source=dest_uri)
+        if dest_uri:
+            working_set.merge_checkpoint(artifacts=[dest_uri])
         return proc.returncode
 
     put_vfs(dest_uri, combined_output, tags=["cmd_output", "auto_intercept"])
@@ -281,11 +271,15 @@ def run_command(cmd: str, dest_uri: str, max_lines=MAX_INLINE_LINES):
     print("=" * 70)
     print(f"💡 Tip: To inspect specific symbols, run:")
     print(f"   python viking_bridge.py grep --uri \"{dest_uri}\" --pattern \"<keyword>\"\n")
+    working_set.crystallize_text("\n".join(lines[:40] + lines[-40:]), source=dest_uri)
+    if dest_uri:
+        working_set.merge_checkpoint(artifacts=[dest_uri])
 
     return proc.returncode
 
 
 def run_ocr(image_path: str, dest_uri: str = None):
+    enforce_explore_budget()
     if not os.path.exists(image_path):
         print(f"[ERROR] Image not found: {image_path}")
         return 1, ""
@@ -313,6 +307,8 @@ def run_ocr(image_path: str, dest_uri: str = None):
     if dest_uri:
         put_vfs(dest_uri, ocr_text, tags=["ocr_result", "ui_inspection"])
         print(f"📍 OCR result also saved to {dest_uri}")
+        working_set.merge_checkpoint(artifacts=[dest_uri])
+    working_set.crystallize_text(ocr_text, source=dest_uri or image_path)
 
     return 0, ocr_text
 
@@ -447,6 +443,7 @@ def capture_and_ocr(app_path: str, open_settings=True, dest_uri: str = None, scr
     4. Crash & process liveness detection
     5. Human-in-the-loop confirmation with configurable timeout
     """
+    enforce_explore_budget()
     app_name = os.path.basename(app_path).replace(".app", "")
     captured_text = ""
     
@@ -536,6 +533,11 @@ def capture_and_ocr(app_path: str, open_settings=True, dest_uri: str = None, scr
         print(f"[AUTO-UI] Auto-terminating '{app_name}' to release file locks...")
         subprocess.run(["pkill", "-9", "-f", app_name], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
+    if captured_text:
+        working_set.crystallize_text(captured_text, source=dest_uri or "capture-ocr")
+        if dest_uri:
+            working_set.merge_checkpoint(artifacts=[dest_uri])
+
     return 0 if (captured_text and len(captured_text.splitlines()) >= 2) else 1
 
 
@@ -586,6 +588,18 @@ def main():
     grep_parser.add_argument("--pattern", required=True, help="Regex or string pattern")
     grep_parser.add_argument("--context", type=int, default=5, help="Lines of context around match")
 
+    # Working set (persist-only; does not consume sprint explore budget)
+    note_parser = subparsers.add_parser("note", help="Append confirmed/rejected facts into checkpoint.json")
+    note_parser.add_argument("--confirmed", action="append", default=[], help="Confirmed fact (repeatable)")
+    note_parser.add_argument("--rejected", action="append", default=[], help="Rejected path (repeatable)")
+    note_parser.add_argument("--next", dest="next_action", help="Next micro-sprint action")
+    note_parser.add_argument("--artifact", action="append", default=[], help="Viking URI or local path (repeatable)")
+    note_parser.add_argument("--phase", help="Runbook phase name")
+
+    subparsers.add_parser("checkpoint", help="Print the current working-set checkpoint.json")
+    subparsers.add_parser("sprint-reset", help="Reset micro-sprint exploration budget to 0")
+    subparsers.add_parser("sprint-status", help="Show micro-sprint exploration budget")
+
     args = parser.parse_args()
 
     if args.subcommand == "doctor":
@@ -620,6 +634,30 @@ def main():
         print(get_vfs(args.uri))
     elif args.subcommand == "grep":
         grep_vfs(args.uri, args.pattern, args.context)
+    elif args.subcommand == "note":
+        data = working_set.merge_checkpoint(
+            confirmed=args.confirmed,
+            rejected=args.rejected,
+            next_action=args.next_action,
+            artifacts=args.artifact,
+            phase=args.phase,
+        )
+        working_set.render_handover(data)
+        print("[WORKING SET] checkpoint.json updated:")
+        print(json.dumps({
+            "confirmed": data.get("confirmed", [])[-5:],
+            "rejected": data.get("rejected", [])[-5:],
+            "next_action": data.get("next_action"),
+        }, ensure_ascii=False, indent=2))
+    elif args.subcommand == "checkpoint":
+        print(json.dumps(working_set.load_checkpoint(), ensure_ascii=False, indent=2))
+    elif args.subcommand == "sprint-reset":
+        working_set.reset_sprint_budget()
+        print("[SPRINT] exploration budget reset to 0/8")
+    elif args.subcommand == "sprint-status":
+        cnt = working_set.read_sprint_count()
+        print(f"[SPRINT] explore {cnt}/{working_set.MAX_SPRINT_STEPS} "
+              f"(drain at {working_set.DRAIN_AFTER}, yield at {working_set.MAX_SPRINT_STEPS})")
 
 
 if __name__ == "__main__":

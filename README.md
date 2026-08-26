@@ -90,6 +90,7 @@ viking-state-workflow/
 │   ├── statem_driver.py              # Zero-dependency StateM state machine engine
 │   ├── statem_supervisor.py          # Sequential subagent supervisor & error classification engine
 │   ├── session_compactor.py          # Session state distillation & handover compactor
+│   ├── working_set.py                # checkpoint.json + discoveries.jsonl + sprint budget
 │   ├── mac_ocr.swift                 # Native macOS Vision OCR extractor (Zero dependencies / VRAM)
 │   ├── viking_env.sh                 # Environment activation script for transparent shims
 │   └── bin/                          # Transparent physical shims (lldb, objdump, otool)
@@ -176,6 +177,7 @@ Orchestrate sequential subagents across states with automated error classificati
 ```bash
 python3 scripts/statem_supervisor.py \
   --runbook runbook.yaml \
+  --sprint-goal "<one question>" \
   --max-retries 3
 ```
 
@@ -185,9 +187,10 @@ python3 scripts/statem_supervisor.py \
 
 Viking State Workflow incorporates five production-grade execution safeguards to ensure deterministic, zero-data-loss execution:
 
-1. **Two-Phase Graceful Drain & Blackbox Auto-Harvesting**:
-   - **Step 18-19 (Yellow Alert HUD)**: Displays an urgent countdown notice prompting the subagent to serialize all discovered offsets and blockers to `HANDOVER.md`.
-   - **Step 20 (Red Drain & Auto-Salvage)**: Enforces hard-yield and triggers `session_compactor.py --harvest` to scrape the raw session flight-recorder (`session.jsonl.zstd`), salvaging 100% of technical facts into `HANDOVER.md` even if abruptly killed!
+1. **Working Set + Micro-Sprint Drain**:
+   - Each subagent answers **one question**, not a whole runbook phase. Live context is checkpoint.json + the last 1–2 tool summaries.
+   - Exploration calls (`run`/`grep`/`ocr`/`capture-ocr`) are capped at 8 per sprint. Calls 6–7 refuse further exploration (persist-only). Call 8 auto-merges `.viking_state/checkpoint.json` and yields (exit 20) **after** the working set is on disk.
+   - High-value tool hits are appended to `discoveries.jsonl` as they appear. `HANDOVER.md` is a projection of the checkpoint, never the sole relay.
 2. **Native-First Progressive Architecture Strategy**:
    - For Universal (Fat) binaries, Phase 1~4 focuses **100% on the host architecture (`arm64` on Apple Silicon)**, slashing token and compute costs by 80%.
    - Upon native verification, the supervisor provides a 1-click option to mirror patches to `x86_64` and synthesize the final Universal fat binary.
@@ -201,16 +204,12 @@ Viking State Workflow incorporates five production-grade execution safeguards to
 *Auto-heals logic/crash failures (`SIGILL`, `Unlicensed`, `Text file busy`) by rebuilding subagents up to 3 times, while instantly pausing and alerting on fatal barriers (SIP permissions, missing files).*
 
 #### 9. Distill Session & Handover
-When conversation history grows long (> 20k tokens), distill discoveries into a compact report (< 500 tokens):
+When conversation history grows long, persist the working set and restart from checkpoint.json — not from chat history:
 ```bash
-python3 scripts/session_compactor.py \
-  --project "myproject" \
-  --milestones "Milestone 1 completed; Gate 2 verified" \
-  --discoveries "Address 0x1004ffa38 locked; NOP is 1F 20 03 D5" \
-  --next-actions "Apply 4-byte patch and codesign" \
-  --output HANDOVER.md
+python3 scripts/viking_bridge.py note --confirmed "Address 0x1004ffa38 locked" --next "XREF that address"
+python3 scripts/session_compactor.py --from-checkpoint --output HANDOVER.md
 ```
-Load `HANDOVER.md` in a fresh session (Clean New Chat) to resume at full speed!
+The next sprint loads `.viking_state/checkpoint.json` plus `runbook.yaml`.
 
 ---
 
@@ -300,7 +299,7 @@ When opening a new session to resume work, **users do not need to memorize or sp
 
 > **🤖 Agent Autonomous Resumption Flow**:
 > "Existing state machine `runbook.yaml` detected in workspace. Autonomously taking over:
-> 1. ✅ **Auto-Loaded Rules & Memory**: Read `AGENTS.md` (locked Subagent redline) & `HANDOVER.md` (inherited confirmed addresses & dead-ends).
+> 1. ✅ **Auto-Loaded Rules & Memory**: Read `AGENTS.md` (redlines), `.viking_state/checkpoint.json` (working set) & `HANDOVER.md` (human digest).
 > 2. 🎯 **Auto-Aligned State**: Ran `statem_driver.py --status` — currently at Phase 5 (`verify_and_deliver`).
 > 3. 🚀 **Auto-Dispatched Subagent**: Dispatching dedicated Subagent in supervisor mode until final `completed` state and delivery!"
 
