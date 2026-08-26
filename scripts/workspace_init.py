@@ -33,25 +33,37 @@ TEMPLATES = {
         "states": [
             ("unpack_and_extract", "Unpack package/DMG and slice thin binary", "Thin binary and frameworks extracted in work/"),
             ("symbol_and_disasm", "Extract symbols, strings, and full disassembly to Viking", "Symbol tables and disassembly stored in viking://"),
-            ("analyze_gating", "Locate authorization/license checks and keypath getters", "Target check functions and patch addresses locked"),
+            ("analyze_gating", "Locate authorization/license checks via String XREF in main binary", "Target check functions and patch addresses locked"),
             ("craft_patch", "Write byte patch, reconstruct fat binary and re-sign", "Patched binary passes codesign validation"),
             ("verify_and_deliver", "Auto-activate app and verify UI state via capture-ocr", "UI status verified and packaged")
         ],
-        "custom_commands": """### 1. 重型反汇编与符号查询
+        "custom_commands": """### 1. 逆向黄金法则与字符串交叉引用秒杀 SOP (String XREF-First Protocol)
+> [!IMPORTANT]
+> 1. **主二进制第一原则**：严禁在第三方 SDK（如 Paddle/Sparkle）上单独打转；授权总闸门 100% 存在于主二进制（Main Binary）内部的 Swift 状态机与 Feature Flag！
+> 2. **秒杀 SOP（字符串 XREF 倒推）**：
+>    - 步骤 1：定位 UI 状态字符串（如 `"Pro License"`, `"Activated"`, `"Unlicensed"`）在 `__cstring` 中的内存地址；
+>    - 步骤 2：在主汇编中通过 `viking_bridge.py grep` 搜索对该地址的 `adrp / ldr` 交叉引用 (XREF)；
+>    - 步骤 3：倒推上方 5~10 行汇编，锁定分流的关键条件跳转（`cbz`, `cbnz`, `tbz`, `b.eq`）；
+>    - 步骤 4：改写该跳转指令，直接强制流向 Pro 分支！
+
+### 2. 重型反汇编与符号查询
 ```bash
 # 提取汇编并转存 Viking
 python3 {skill_dir}/viking_bridge.py run \\
   --dest "viking://knowledge/{project}/disasm/main.asm" \\
   --cmd "objdump -d work/<binary_name>"
 
-# 精准切片检索关键符号
+# 精准切片检索字符串与汇编交叉引用
 python3 {skill_dir}/viking_bridge.py grep \\
   --uri "viking://knowledge/{project}/disasm/main.asm" \\
-  --pattern "<keyword>" \\
+  --pattern "<target_address_or_symbol>" \\
   --context 15
+
+# 还原 Swift Mangled 符号
+echo "<mangled_symbol>" | swift demangle
 ```
 
-### 2. 一键 UI 自动化验证 (阶段 5: verify_and_deliver)
+### 3. 一键 UI 自动化验证 (阶段 5: verify_and_deliver)
 ```bash
 python3 {skill_dir}/viking_bridge.py capture-ocr \\
   --app "work/<app_name>.app" \\

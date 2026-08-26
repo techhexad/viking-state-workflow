@@ -126,13 +126,23 @@ python3 "<SKILL_DIR>/scripts/viking_bridge.py" run \
 ```
 *The wrapper returns a concise summary (L0) and line ranges rather than the raw output.*
 
-### Step 4: Targeted Query & Patching
+### Step 4: Targeted Query & Domain Heuristics (String XREF-First Protocol)
+
+> [!IMPORTANT]
+> #### 🎯 逆向工程核心启发式铁律 (Reverse Engineering Golden Heuristics)
+> 1. **主二进制裁决第一原则 (Main Binary Hierarchy First)**：
+>    严禁在第三方依赖库（如 `Paddle.framework` / `Sparkle.framework`）上单独死磕！商业软件的主程序（Main Binary）内部 100% 拥有自己的 Swift 授权状态机。必须以主二进制内部的判定点为终极目标！
+> 2. **秒杀 SOP（字符串 XREF 倒推法）**：
+>    - **定目标**：在 `__cstring` 中检索已知的 UI 状态字符串（例如 `"Status: Pro License Activated"`, `"Trial Expired"`, `"isPro"`）及其内存地址；
+>    - **找引用**：在主反汇编中通过 `viking_bridge.py grep` 搜索引用该地址的 `adrp / ldr` 交叉引用（XREF）；
+>    - **溯分支**：往上倒推 5~10 行汇编，必定能锁定分流的关键条件跳转（`cbz`, `cbnz`, `tbz`, `b.eq`）；
+>    - **改跳转**：直接改写该条件跳转，强制全速流向 Pro 激活分支！
 
 Query specific functions or addresses without pulling the entire file:
 ```bash
 python3 "<SKILL_DIR>/scripts/viking_bridge.py" grep \
   --uri "viking://knowledge/<project>/disasm/main.asm" \
-  --pattern "fnStatus" \
+  --pattern "<target_address_or_symbol>" \
   --context 15
 ```
 
