@@ -84,7 +84,7 @@ def generate_subagent_prompt(project: str, state_name: str, state_meta: dict, fa
 2. 🛡️ **严禁内存 Dump 毒化上下文 (Anti-Hex-Dump Shield)**: 严禁在终端大段打印 `memory read` / `xxd` / `hexdump` 原始十六进制（大量零字节会导致大模型注意力崩溃输出 0,0,0 退化）。所有内存 Dump 必须使用 Python 解析出关键结构或管道写入 `viking://`！
 3. 🧹 **彻底强杀旧进程 (Mandatory Force-Kill)**: 在构建、补丁、重签或启动测试前，必须强制执行 `pkill -9 -f "<app_name>" 2>/dev/null || killall -9 "<app_name>" 2>/dev/null || true`，确保内存完全干净！
 4. 📦 **重型命令必须进 Viking**: 所有反汇编、长日志必须使用 `python3 {SCRIPT_DIR}/viking_bridge.py run --dest "viking://knowledge/{project}/..." --cmd "..."`。
-5. 🎯 **验收与交接**: 当 Gate 条件达成，更新 HANDOVER.md 并输出 `GATE PASS: <一句话结论>` 正常退出。
+5. ⚡ **单向极简交接与立即终结 (One-Shot Compact Exit)**: 达成 Gate 或熔断退出时，仅需更新 HANDOVER.md，输出 ≤5 行极简结构化结论（如 `GATE_STATUS: PASS | PATCHES: [0x5445C7, 0x51E050] | VERIFY: OK`），并**立即彻底结束会话退出**。严禁输出长篇废话或与调度器进行多轮 Ping-Pong 中继闲聊，确保本地 GPU 显存与算力瞬间 100% 释放给主控！
 """
 
     if failure_context:
