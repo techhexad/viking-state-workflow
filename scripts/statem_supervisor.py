@@ -79,11 +79,12 @@ def generate_subagent_prompt(project: str, state_name: str, state_meta: dict, fa
 ## Gate Requirements (Success Criteria):
 {gate}
 
-## Operational Rules:
-1. All heavy commands (> 40 lines) MUST use: python3 {SCRIPT_DIR}/viking_bridge.py run --dest "viking://knowledge/{project}/..." --cmd "..."
-2. Before launching, rebuilding, or patching any app, ALWAYS enforce clean process termination: `pkill -9 -f "<app_name>" 2>/dev/null || killall -9 "<app_name>" 2>/dev/null || true` (never use plain pkill, macOS background daemons ignore SIGTERM).
-3. For UI verification, run: python3 {SCRIPT_DIR}/viking_bridge.py capture-ocr --app "work/<app_name>.app"
-4. When the gate criteria are met, write key findings to HANDOVER.md and exit with code 0.
+## Operational Rules & Strict Step Budget:
+1. 🛑 **Hard Step Budget (最大 20 步硬熔断)**: 你在当前阶段的执行预算严格限制在 **20 步** 以内！严禁在单会话内死磕超过 20 步。如果在第 15 步仍未达成目标，必须立即停止探索，将已定位地址和阻碍写入 HANDOVER.md，输出 `GATE FAIL: <原因>` 并正常退出。监督器会自动销毁你的会话，拉起全新的下一任子智能体接力，彻底防止长跑退化！
+2. 🛡️ **严禁内存 Dump 毒化上下文 (Anti-Hex-Dump Shield)**: 严禁在终端大段打印 `memory read` / `xxd` / `hexdump` 原始十六进制（大量零字节会导致大模型注意力崩溃输出 0,0,0 退化）。所有内存 Dump 必须使用 Python 解析出关键结构或管道写入 `viking://`！
+3. 🧹 **彻底强杀旧进程 (Mandatory Force-Kill)**: 在构建、补丁、重签或启动测试前，必须强制执行 `pkill -9 -f "<app_name>" 2>/dev/null || killall -9 "<app_name>" 2>/dev/null || true`，确保内存完全干净！
+4. 📦 **重型命令必须进 Viking**: 所有反汇编、长日志必须使用 `python3 {SCRIPT_DIR}/viking_bridge.py run --dest "viking://knowledge/{project}/..." --cmd "..."`。
+5. 🎯 **验收与交接**: 当 Gate 条件达成，更新 HANDOVER.md 并输出 `GATE PASS: <一句话结论>` 正常退出。
 """
 
     if failure_context:
