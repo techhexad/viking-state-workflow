@@ -97,10 +97,18 @@ def _http_request(endpoint: str, method="GET", data=None):
 def _write_local_backup(uri: str, content: str):
     safe_rel = uri.replace("viking://", "").lstrip("/")
     target_path = os.path.join(LOCAL_VFS_BACKUP, safe_rel)
-    os.makedirs(os.path.dirname(target_path), exist_ok=True)
-    with open(target_path, "w", encoding="utf-8") as f:
-        f.write(content)
-    return target_path
+    try:
+        os.makedirs(os.path.dirname(target_path), exist_ok=True)
+        with open(target_path, "w", encoding="utf-8") as f:
+            f.write(content)
+        return target_path
+    except (PermissionError, OSError):
+        # Sandbox fallback: write inside current working directory
+        ws_backup = os.path.join(os.getcwd(), ".viking_vfs", safe_rel)
+        os.makedirs(os.path.dirname(ws_backup), exist_ok=True)
+        with open(ws_backup, "w", encoding="utf-8") as f:
+            f.write(content)
+        return ws_backup
 
 
 def doctor():
@@ -167,6 +175,10 @@ def get_vfs(uri: str):
     target_path = os.path.join(LOCAL_VFS_BACKUP, safe_rel)
     if os.path.exists(target_path):
         with open(target_path, "r", encoding="utf-8") as f:
+            return f.read()
+    ws_path = os.path.join(os.getcwd(), ".viking_vfs", safe_rel)
+    if os.path.exists(ws_path):
+        with open(ws_path, "r", encoding="utf-8") as f:
             return f.read()
     return f"[ERROR] Node {uri} not found."
 
