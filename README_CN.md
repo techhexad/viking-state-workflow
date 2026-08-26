@@ -2,329 +2,266 @@
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Python](https://img.shields.io/badge/Python-3.9+-green.svg)](https://www.python.org/)
-[![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Linux-lightgrey.svg)]()
+[![Platform](https://img.shields.io/badge/Platform-macOS-lightgrey.svg)]()
 [![Status](https://img.shields.io/badge/Status-Active-brightgreen.svg)]()
 
 [English](README.md) | [中文说明](README_CN.md)
 
-**Viking State Workflow** 是专为 AI Agent（智能体）设计的长流程复杂任务执行框架。通过融合 **[StateM](https://github.com/henryqin1997/statem)**（确定性状态机与声明式 YAML Runbook）、**[OpenViking](https://github.com/volcengine/OpenViking)**（字节跳动火山引擎开源的分层 VFS 上下文数据库）、**双周期范式自愈与沉淀闭环（Dual-Cycle Memory Crystallization）** 以及 **macOS 原生 Vision OCR**（零显存文字识别），彻底杜绝大模型上下文爆炸、消除本地模型显存溢出（OOM）崩溃，并为多智能体提供结构化、可接力的执行体系。
+专门跑 **macOS 应用破解 / Pro 授权绕过**。本地小机器、显存和上下文都有限时，用冻结剧本：解包 → 反汇编进 OpenViking → 在**主二进制**里字符串 XREF 定位授权闸门 → 改跳转并重签 → OCR 验收 Pro 界面。
+
+进度写在 YAML runbook。大 dump 进 `viking://`。事实进 `checkpoint.json`。每个子 Agent 只答**一道题**。
+
+依赖：[OpenViking](https://github.com/volcengine/OpenViking) · [StateM](https://github.com/henryqin1997/statem)
+
+本 skill **不是**通用长任务框架。不要拿来做仓库重构、产品开发或线上排障。
 
 ---
 
-## 🔗 上游开源项目与核心依赖引用
+## 先建立这三层关系
 
-- **[OpenViking](https://github.com/volcengine/OpenViking)** (`volcengine/OpenViking`)：专为 AI Agent 设计的开源分层上下文数据库与虚拟文件系统 (`viking://`)。
-- **[StateM](https://github.com/henryqin1997/statem)** (`henryqin1997/statem`)：用于驱动 Agent 执行声明式 Runbook 的轻量级确定性状态机引擎。
-
----
-
-## 🧠 双周期记忆沉淀与跨任务进化 (Dual-Cycle Memory)
+不要把「阶段」「冲刺」「DSH 步数」混成一件事：
 
 ```
-                       ┌────────────────────────────────────────────────────────┐
-                       │  周期 1：过程级微观沉淀 (Progressive Micro-Memory)      │
-                       │  - 状态机每个阶段 Gate 达成时，自动落盘事实至 HANDOVER.md│
-                       │  - 失败时监督器自动提炼负向约束，注入下一任子 Agent     │
-                       └───────────────────────────┬────────────────────────────┘
-                                                   │ 终态 completed 自动触发
-                                                   ▼
-                       ┌────────────────────────────────────────────────────────┐
-                       │  周期 2：任务级宏观范式升华 (Macro-Recipe Distillation)│
-                       │  - 任务完工瞬间自动提炼通用避坑指南并归档至 Viking       │
-                       │    `viking://memory/recipes/<task_type>.md`            │
-                       │  - 新项目执行 workspace_init.py 时自动读取并注入经验   │
-                       └────────────────────────────────────────────────────────┘
+runbook 阶段（Gate 过了才能 --advance）
+    └── 多轮短冲刺（每轮只答一道小题）
+            └── 每轮最多 8 次 viking_bridge 探索（run/grep/ocr/capture-ocr）
+                    └── 事实写入 .viking_state/checkpoint.json
 ```
 
+| 名词 | 是什么 | 谁推进 |
+|---|---|---|
+| **阶段** | 解包 → 反汇编 → 定位闸门 → 补丁重签 → OCR 验证 | 主控在 Gate 通过后 `--advance --gate-check` |
+| **短冲刺** | 子 Agent 只做 `checkpoint.next_action` 这一题 | 主控派发；子 Agent 输出 `SPRINT_STATUS` 后结束 |
+| **8 步超时** | 一次冲刺里 `viking_bridge` 探索调用的上限 | **bridge 硬限制**，不是 DSH 的 `step/start` |
+
+机器接力信源是 `.viking_state/checkpoint.json` + `discoveries.jsonl`。`HANDOVER.md` 只是给人看的投影。
+
 ---
 
-## 🎯 核心解决的痛点
+## 一句话怎么用
 
-在执行长周期、高复杂度的 Agent 任务时（例如：二进制逆向分析、大型代码库重构、全栈深度排障）：
-- 随着多轮对话进行，工具调用产生的海量输出（如 `objdump` 反汇编、堆栈追踪、构建日志、多模态图片）在线性累积。
-- 对话上下文剧烈膨胀（单会话高达 10万~30万 Tokens），极易触发 `400 Context Length Exceeded` 或本地 LLM 显存 OOM 崩溃。
-- 会话死锁导致进度丢失，开发者不得不耗费大量精力手动提炼历史并重启对话。
+在**空目录**开新聊天：
+
+> 使用 viking-state-workflow 监督模式开始新任务：逆向分析 `/path/to/App.dmg` 的 Pro 授权，最终交给我破解版 app。
+
+已有 `runbook.yaml` 的目录里续跑：
+
+> 使用 viking-state-workflow 监督模式，继续完成当前任务。
+
+不必写「短冲刺 / 8 步 / checkpoint」。Agent 应自动：`doctor` → 没有 runbook 就 `workspace_init --type reverse_engineering` → 按当前阶段出一道小题 → 派子 Agent。
+
+主控只拆题、读 checkpoint、判 Gate；不要一次做完整个阶段。
 
 ---
 
-## 🏗️ 架构设计
+## 破解剧本
+
+生成的 `runbook.yaml` 阶段：
+
+1. **unpack_and_extract** — 挂载 DMG，切出本机架构 thin binary（先 `uname -m`）
+2. **symbol_and_disasm** — 符号、字符串、完整反汇编进 `viking://`
+3. **analyze_gating** — 在**主二进制**做字符串 XREF（不要在 Paddle / Sparkle 里打转）
+4. **craft_patch** — 改跳转，必要时合成胖二进制，重签
+5. **verify_and_deliver** — 拉起应用 + `capture-ocr`，确认 Pro / Activated 界面
+
+第三阶段秒杀 SOP（字符串 XREF）：
+
+1. 在 `__cstring` 里定位 UI 字符串（`Pro License`、`Activated`、`Trial Expired`、`Unlicensed`）
+2. `viking_bridge.py grep` 搜对该地址的 `adrp` / `ldr` 交叉引用
+3. 往上倒 5～10 条指令，分流一般是 `cbz` / `cbnz` / `tbz` / `b.eq`
+4. 改写跳转，强制走 Pro 分支
+
+---
+
+## 工作区里会有什么
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  Agent 执行层 (多智能体通用支持)                            │
-│  [ DSH ] / [ Hermes ] / [ OpenCode ] / [ Claude Code ] ... │
-└──────────────────────────────┬──────────────────────────────┘
-                               │ 结构化指令与阶段门禁校验
-┌──────────────────────────────▼──────────────────────────────┐
-│  状态与控制层 (StateM)                                      │
-│  - 基于 YAML 的声明式 Runbook 状态机                        │
-│  - 严格的状态流转门禁 (Gate Check)                          │
-│  - 检查点快照与自动回滚处理                                 │
-└──────────────────────────────┬──────────────────────────────┘
-                               │ VFS 查询与长日志截流转存
-┌──────────────────────────────▼──────────────────────────────┐
-│  上下文、记忆与视觉层 (OpenViking + 原生 Vision OCR)        │
-│  - 重型输出自动拦截外挂 (`viking://`)                       │
-│  - macOS 原生 Vision OCR (零显存占用 / 零 Token 消耗)       │
-│  - L0/L1 渐进式发现 (先输出摘要，按需取用)                  │
-│  - 精准代码切片检索 (`viking_bridge.py grep`)               │
-│  - 持久化会话记忆提炼与无缝接力                             │
-└─────────────────────────────────────────────────────────────┘
+<project>/
+├── runbook.yaml                 # 破解阶段与 Gate
+├── AGENTS.md                    # 红线与命令
+├── HANDOVER.md                  # checkpoint 的人读版
+├── .viking_state/
+│   ├── checkpoint.json          # 已确认事实 / 已否决路径 / next_action
+│   ├── discoveries.jsonl        # 工具命中，只追加
+│   └── sprint_budget            # 本轮探索计数，派发时清零
+└── work/                        # 解包、thin binary、打过补丁的 .app
 ```
 
----
-
-## 📁 仓库目录结构
-
-```bash
-viking-state-workflow/
-├── SKILL.md                          # Agent 技能规范标准 (兼容 Antigravity 与 Skills-Manager)
-├── README.md                         # 英文文档
-├── README_CN.md                      # 中文文档
-├── LICENSE                           # Apache-2.0 开源协议
-├── scripts/
-│   ├── workspace_init.py             # 通用工作区初始化脚手架 (支持任意任务类型)
-│   ├── viking_bridge.py              # OpenViking VFS 客户端、前置体检与 capture-ocr 自动化
-│   ├── statem_driver.py              # 纯标准库零依赖 StateM 状态机驱动引擎
-│   ├── statem_supervisor.py          # 串行 Subagent 编排监督器与错误分类决策引擎
-│   ├── session_compactor.py          # 会话状态提炼与主动接力工具
-│   ├── working_set.py                # checkpoint.json + discoveries.jsonl + 短冲刺预算
-│   ├── mac_ocr.swift                 # 原生 macOS Vision OCR 提取器 (零依赖 / 零显存)
-│   ├── viking_env.sh                 # 环境变量注入脚本 (激活透明拦截垫片)
-│   └── bin/                          # 透明物理拦截垫片 (lldb, objdump, otool)
-└── templates/
-    ├── runbook_template.yaml         # 生产级 YAML Runbook 状态机模板
-    └── ov.conf.template              # OpenViking 配置文件模板
-```
+反汇编、追踪、OCR 在 `viking://knowledge/<project>/`，不进对话。
 
 ---
 
-## 🚀 快速上手与零门槛自动引导
+## 命令怎么配合（开发者速查）
 
-### 🌟 零门槛使用体验（对普通用户只需一句话）
-用户完全不需要记忆任何底层命令行。只需对任意 AI Agent 发送一句话：
-> **“使用 `viking-state-workflow` 技能开始一个新任务：[描述你的任务目标]”**
+脚本默认在 skill 的 `scripts/` 下，工作区里请用 `AGENTS.md` 写明的绝对路径。
 
-Agent 将**全自动依次执行 4 步无感初始化闭环**：
-1. `viking_bridge.py doctor` ➔ 自动进行前置体检，自愈探测服务端端口（如 1933）与鉴权凭证；
-2. `workspace_init.py` ➔ 自动识别任务类型（逆向分析 `reverse_engineering`、代码重构 `code_refactor`、深度排障 `deep_debugging`、通用任务 `general_long_task`），生成定制版 `AGENTS.md` 与 `runbook.yaml`；
-3. `statem_driver.py --status` ➔ 展示初始状态与阶段 Gate 要求；
-4. 无需等待二次指令，**直接开始执行阶段 1 的具体开发与分析工作！**
+**1. 体检与建项目**
 
----
-
-### 🔧 开发者与底层工具链速查指南 (Manual Reference)
-
-#### 1. 启动前置体检 (Mandatory Pre-flight Check)
-自动验证 OpenViking 服务连通性、鉴权 Key 与端口状态（如 1933）：
 ```bash
 python3 scripts/viking_bridge.py doctor
-```
-
-#### 2. 自动合成新项目工作区 (Workspace Init)
-为任意类型的工程任务生成专属的 `AGENTS.md` 和状态机 `runbook.yaml`：
-```bash
 python3 scripts/workspace_init.py \
-  --project "<项目名称>" \
-  --type "reverse_engineering|code_refactor|deep_debugging|general_long_task" \
-  --prompt "<任务目标描述>" \
+  --project "<项目名>" \
+  --type reverse_engineering \
+  --prompt "破解 <App> Pro 授权，交付可运行的补丁版 app" \
   --dir "."
-```
-
-#### 3. 查看当前任务状态与门禁
-```bash
 python3 scripts/statem_driver.py --status
 ```
 
-#### 4. 重型输出命令拦截转存 (VFS Offloading)
-自动拦截超过 40 行的命令输出，将其转存至 OpenViking 虚拟文件系统，彻底防止上下文爆炸：
+**2. 探索（计入 8 步）** — 禁止裸 `objdump` / `cat` 大文件。
+
 ```bash
 python3 scripts/viking_bridge.py run \
-  --dest "viking://knowledge/myproject/disasm.asm" \
-  --cmd "objdump -d /path/to/binary"
-```
-*终端仅打印 L0 前后 10 行预览及行数统计，完整大文件安全存放于 Viking。*
+  --dest "viking://knowledge/<project>/disasm/main.asm" \
+  --cmd "objdump -d work/<binary>"
 
-#### 5. 精准代码切片按需检索 (Grep Snippet)
-只提取目标函数或关键词前后 10~15 行代码进入上下文，无需全量读取：
-```bash
 python3 scripts/viking_bridge.py grep \
-  --uri "viking://knowledge/myproject/disasm.asm" \
-  --pattern "目标函数或符号名" \
-  --context 15
-```
+  --uri "viking://knowledge/<project>/disasm/main.asm" \
+  --pattern "<符号或地址>" --context 15
 
-#### 6. 一体化 GUI 界面验证与 Vision OCR (零显存)
-自动激活 App、窗口强制置顶抗遮挡、AppleScript 打开设置、截图并调用原生 Vision OCR 识别文字，支持人机协同超时自愈：
-```bash
 python3 scripts/viking_bridge.py capture-ocr \
   --app "work/MyApp.app" \
-  --dest "viking://knowledge/myproject/ocr/ui.txt" \
-  --ask-user \
-  --timeout 600
+  --dest "viking://knowledge/<project>/ocr/ui.txt" \
+  --ask-user --timeout 600
 ```
 
-#### 7. 推进阶段状态 (单 Agent 模式)
-验证当前阶段 Gate 门禁达成后，推进至下一阶段：
+**3. 落盘（不计入 8 步）**
+
 ```bash
-python3 scripts/statem_driver.py --advance
+python3 scripts/viking_bridge.py note \
+  --confirmed "<事实>" --rejected "<死胡同>" --next "<下一题>"
+python3 scripts/viking_bridge.py checkpoint
+python3 scripts/session_compactor.py --from-checkpoint --output HANDOVER.md
 ```
 
-#### 8. 串行 Subagent 编排与智能自愈 (多 Agent 监督模式)
-自动调度轻量串行子智能体，执行阶段任务，并基于错误分类学进行智能自愈：
+**4. 派一题 / 过 Gate**
+
 ```bash
 python3 scripts/statem_supervisor.py \
   --runbook runbook.yaml \
   --sprint-goal "<一道小题>" \
   --max-retries 3
+
+# 短冲刺 DONE ≠ 阶段完成
+python3 scripts/statem_driver.py --advance --gate-check
 ```
+
+`statem_supervisor.py` 合成 prompt 时会 `sprint-reset`，并把 checkpoint 切片注入子 Agent。子进程 exit 0 **不会**自动推进阶段。
 
 ---
 
-## 🛡️ 工业级可靠性、安全性与执行防线 (Reliability Safeguards)
+## 8 步探索超时
 
-Viking State Workflow 内置了五大工业级执行防线，确保长程任务 100% 确定性收敛与零数据丢失：
+Bridge 硬限制：一道题在上下文胀起来之前停，并且**停之前工作集已经在磁盘上**。它数的不是宿主 Agent 的对话轮次。
 
-1. **工作集 + 短冲刺排水 (Working Set + Micro-Sprint Drain)**：
-   * 每个子 Agent 只答 **一道小题**，不是整个 runbook 阶段。对话里只留 checkpoint.json 和最近 1～2 次工具摘要。
-   * 探索类调用（`run`/`grep`/`ocr`/`capture-ocr`）单次冲刺上限 8 次。第 6–7 次拒绝继续探索（只准写盘）。第 8 次在自动合并 `.viking_state/checkpoint.json` 之后以退出码 20 让权。
-   * 高价值工具命中当时追加进 `discoveries.jsonl`。`HANDOVER.md` 只是 checkpoint 的人读投影，不是唯一接力信源。
-2. **本机架构优先渐进策略 (Native-First Progressive Architecture Strategy)**：
-   * 面对 Universal (Fat) 胖二进制时，第一轮 **100% 聚焦于本机原生架构（如 Apple Silicon 下只跑 arm64）**，显存与步数消耗骤降 80%。
-   * 本机架构验证翻绿交付后，驱动器自动提供“一键镜像同步到 x86_64”选项，秒级合成 Universal 胖二进制。
-3. **Accessibility UI 零录屏权限极速读取 (Accessibility Inspector)**：
-   * 原生调用 macOS Accessibility API 直接抓取窗口文字树，耗时 < 0.05 秒（比 OCR 快 70 倍），无需任何录屏权限。
-   * 配备友好的 TCC 授权引导与倒计时重试，遇阻自动优雅降级为 Vision OCR。
-4. **多工作区同名进程物理隔离盾 (Multi-Workspace Process Collision Shield)**：
-   * 启动目标 App 前自动扫描并强杀其他目录下的同名常驻进程，彻底杜绝 macOS LaunchServices 跨工程静默路由劫持。
-5. **调试重签权限注入 (AMFI & LLDB Bypass)**：
-   * 测试签名时自动注入包含 `get-task-allow` + `disable-library-validation` 的 Plist 权限表，彻底消灭 macOS 内核拦截报 `error 9: Operation not permitted`。
-* **自愈机制**：遇到逻辑错误、补丁崩溃（`SIGILL`/`SIGSEGV`）、OCR 显示未激活、文件占用等可恢复错误时，自动注入失败原因并**重建 Subagent 重试（最多 3 次）**；
-* **安全熔断**：遇到系统权限（SIP）、缺失物料、基建宕机等致命错误时，**立即停机并请求人工介入**。
+### 计什么
 
-#### 9. 主动会话压缩与无缝接力 (Session Handover)
-当多轮会话累积过长时，先把工作集落盘，再从 checkpoint.json 开新冲刺——不要把聊天记录交给下一任：
+| 计入（上限 8） | 不计入 |
+|---|---|
+| `run` / `grep` / `ocr` / `capture-ocr` | `note` / `checkpoint` / `doctor` / `ping` / `sprint-reset` / `sprint-status` |
+| | 裸 `bash`、`hdiutil`、`lipo`、`read_file` |
+| | 主控的 `statem_driver` / `statem_supervisor` |
+
+计数器：`.viking_state/sprint_budget`。不经 supervisor 派子 Agent 时，计数会跨会话累加，需手动：
+
 ```bash
-python3 scripts/viking_bridge.py note --confirmed "锁定核心地址 0x1004ffa38" --next "对该地址做 XREF"
-python3 scripts/session_compactor.py --from-checkpoint --output HANDOVER.md
+python3 scripts/viking_bridge.py sprint-reset
+python3 scripts/viking_bridge.py sprint-status    # 0/8 … 8/8
 ```
-下一冲刺只加载 `.viking_state/checkpoint.json` 与 `runbook.yaml`。
+
+> 子 Agent 若全程裸 bash，DSH 步数可以到 14、15，**超时不会触发**。要生效，探索必须走 `viking_bridge.py run|grep|ocr|capture-ocr`。
+
+### 一次冲刺里
+
+| 第几次探索 | 行为 | 退出码 | 命令执行吗 |
+|---|---|---|---|
+| 1–4 | 正常跑，命中写入 `discoveries.jsonl` | 命令自己的 | 会 |
+| 5 | 正常跑，黄牌：下次进入 drain | 命令自己的 | 会 |
+| 6–7 | Drain：拒绝探索，提示立刻 `note` | **18** | 不会 |
+| 8 | Yield：先结晶 checkpoint / HANDOVER，再让权 | **20** | 不会 |
+
+主控见到 18 / 20 或 `SPRINT_STATUS: YIELD`：**不要** `--advance`。读 `next_action`，再派下一题。
+
+子 Agent 收尾固定四行然后断连：
+
+```
+SPRINT_STATUS: DONE|YIELD|FAIL
+CONFIRMED: ...
+REJECTED: ...
+NEXT: ...
+```
+
+### 怎么验证超时真的在工作
+
+```bash
+python3 scripts/viking_bridge.py sprint-reset
+python3 scripts/viking_bridge.py sprint-status          # 0/8
+# 同一条 grep 重复 8 次，每次后再 sprint-status
+python3 scripts/viking_bridge.py grep \
+  --uri "viking://knowledge/<project>/disasm/main.asm" \
+  --pattern "Unlicensed"
+```
+
+预期：1–5 有 grep 结果；6–7 出现 `SPRINT DRAIN` 且 exit 18；第 8 次 `SPRINT_STATUS: YIELD`、exit 20、`checkpoint.json` 已更新。八次都是裸 bash 则一直停在 `0/8`。
 
 ---
 
-## 💬 自然语言对话实战场景 (Conversational Scenarios)
+## 破解红线（和 8 步分开）
 
-用户可以通过**日常自然语言**与 AI Agent 协作，在任务初始或任意阶段灵活调用各项能力：
+- **主二进制第一。** 不要在第三方 SDK（`Paddle.framework`、Sparkle）上死磕。Pro 开关在应用自己的 Swift 状态机里。
+- **禁止裸跑大输出。** `lldb` / `objdump` / `otool` / `strings` / hex dump 走 `viking_bridge.py run`。禁止把 `xxd` 贴进对话。
+- **本机架构优先。** Universal 二进制第一轮只做 `uname -m`（Apple Silicon 上即 arm64），过 Gate 再镜像 x86_64。
+- **强杀旧进程。** 补丁、重签、拉起测试前用 `pkill -9` / `killall -9`，不要只发 SIGTERM。
+- **多工作区隔离。** 启动目标 App 前清掉其它目录里的同名进程，避免 LaunchServices 串台。
+- **调试重签。** LLDB 测试必须带 `get-task-allow` + `disable-library-validation` 的 entitlements，禁止裸 `codesign -s -`。
+- **UI 验证。** 优先 `capture-ocr` 的 Accessibility 文字树；缺权限再降级 Vision OCR。
+- **错误分类。** `SIGILL` / 未授权 UI / 文件占用 → 注入负向约束后最多重建 3 次；SIP / sudo 密码 / 缺 DMG / 守护进程挂了 → 停下来问人。
 
----
-
-### 🌟 场景 1：任务初始化（支持直接开启“标准模式”或“监督自愈模式”）
-
-#### A. 标准全自动初始化：
-> **👤 用户**：
-> “使用 `viking-state-workflow` 开始一个新任务：把电商系统的底层 ORM 从 GORM 重构迁移到 Ent。”
-
-> **🤖 Agent**：
-> “收到！正在自动执行初始化闭环：
-> 1. ✅ **环境体检**：`viking_bridge.py doctor` 检查通过，OpenViking 在线；
-> 2. ✅ **工作区合成**：已识别为 `code_refactor` 任务，生成定制版 `AGENTS.md` 与 5 阶段 `runbook.yaml`；
-> 3. 🎯 **起点阶段**：`dependency_audit`（扫描模块调用与依赖）。
-> 正在开始第一阶段工作……”
-
-#### B. 一句话直接开启「监督自愈模式」：
-> **👤 用户**：
-> “使用 `viking-state-workflow` **监督模式**开始新任务：逆向分析 `TargetApp.dmg` 的 Pro 授权，每个阶段失败最多自动重建 3 次重试。”
-
-> **🤖 Agent**：
-> “已自动完成体检并生成工作区！正在以**串行监督器模式**接管执行：
-> ```bash
-> python3 scripts/statem_supervisor.py --runbook runbook.yaml --max-retries 3
-> ```
-> 阶段任务将由轻量串行 Subagent 执行，若遇逻辑/补丁崩溃将自动注入经验重试，遇到系统权限等致命错误将自动停机求助。”
+任务 `completed` 时，成功经验会追加到 `viking://memory/recipes/reverse_engineering.md`，下次 `workspace_init.py` 自动注入。
 
 ---
 
-### 🔍 场景 2：重型命令外挂与代码切片检索
-> **👤 用户**：
-> “反汇编生成了吗？帮我检索下关于 `fnStatus` 和 Pro 门控判断的关键代码。”
+## 对话示例
 
-> **🤖 Agent**：
-> “已完成反汇编！
-> 🛡️ **防爆拦截**：主二进制反汇编文件高达 205MB，已通过 `viking_bridge.py run` 安全外挂至 `viking://knowledge/target_app/disasm/main_disasm.txt`，未占用当前会话上下文。
-> 🔍 **切片检索**：通过 `viking_bridge.py grep` 提取到关键代码块：
-> ```asm
-> 0x10051da58  bl  func.100507f68       ; 读取 Pro 激活布尔值 -> w21
-> 0x10051da68  tbz w21, #0, 0x10051db3c ; 未激活跳转分支 (Patch 目标)
-> ```
-> 建议将 `0x51da68` 处的跳转指令替换为真 NOP（`1F 20 03 D5`）。”
+**新破解**
 
----
+> 使用 viking-state-workflow 监督模式开始新任务：逆向分析 `TargetApp.dmg` 的 Pro 授权，交给我破解版 app。
 
-### 🖥️ 场景 3：GUI 界面自动化验证与人机协同
-> **👤 用户**：
-> “补丁打好了，启动 App 验证一下 UI 激活状态。验证时提示我核验，等待我 3 分钟。”
+Agent：`doctor` → `workspace_init --type reverse_engineering` → 当前阶段只出一道小题（例如确认主二进制路径）→ `statem_supervisor.py --sprint-goal "..."`。Gate 未过就派下一题，不把整个阶段交给一个人。
 
-> **🤖 Agent**：
-> “正在执行一键 UI 验证流水线：
-> ```bash
-> python3 scripts/viking_bridge.py capture-ocr \
->   --app "work/TargetApp.app" \
->   --dest "viking://knowledge/target_app/ocr/ui.txt" \
->   --ask-user --timeout 180
-> ```
-> *(自动置顶窗口 ➔ Cmd+, 呼出设置 ➔ 截屏并 Vision OCR 识别)*
-> 
-> ❓ **人工核验提示**：OCR 识别到界面文字为 `Pro License Activated`。请在屏幕上核对，输入 `y` 确认（将在 180 秒后自动超时确认并退出进程释放文件锁）。”
+**续跑**
+
+> 使用 viking-state-workflow 监督模式，继续完成当前任务。
+
+Agent：读 `AGENTS.md` + `checkpoint.json` + `runbook.yaml` → 用 `next_action` 派下一冲刺。
+
+**失败后的自愈**（同一阶段的下一冲刺，不是自动 `--advance`）：子 Agent `SPRINT_STATUS: FAIL` → 主控把负向约束写入 checkpoint → 派下一任。Gate 真过了才 `--advance --gate-check`。
 
 ---
 
-### 🔄 场景 4：串行 Subagent 自动容错自愈实况
-> **🤖 Agent (主控 Supervisor 自动播报)**：
-> “在当前阶段执行过程中捕获到异常，正在自动自愈：
-> 1. 🚀 **[Attempt 1/3] Subagent-1** 尝试对 `0x51da68` 打入补丁 ➔ 测试启动发生崩溃：`SIGILL (EXC_BAD_INSTRUCTION)`；
-> 2. 🔍 **主控错误分类**：判定为 **`RECOVERABLE`（可自愈逻辑错误：写错了非法指令 BRK#0）**；
-> 3. 🧠 **经验注入**：主控自动将失败堆栈提炼为负向约束：*“禁止使用 BRK 指令，需使用真 NOP (1F 20 03 D5)”*；
-> 4. 🚀 **[Attempt 2/3] 自动重建 Subagent-2** 接收新约束并重新计算机器码 ➔ 测试启动成功，通过 Gate 门禁！
-> 5. ✅ **主控自动推进**：调用 `statem_driver.py --advance` 进入下一阶段！”
+## 仓库结构
+
+```
+viking-state-workflow/
+├── SKILL.md
+├── README.md / README_CN.md
+├── LICENSE
+├── scripts/
+│   ├── workspace_init.py       # 生成破解用 AGENTS.md + runbook.yaml
+│   ├── viking_bridge.py        # doctor / run / grep / ocr / note / 8 步超时
+│   ├── working_set.py          # checkpoint、discoveries、sprint_budget
+│   ├── statem_driver.py        # 阶段状态与 Gate
+│   ├── statem_supervisor.py    # 合成短冲刺 prompt、reset 预算
+│   ├── session_compactor.py    # 从 checkpoint 渲染 HANDOVER.md
+│   ├── mac_ocr.swift
+│   ├── viking_env.sh
+│   └── bin/                    # lldb / objdump / otool 垫片（超 40 行转存 VFS）
+└── templates/
+```
+
+兼容 DSH、Hermes、OpenCode、Claude Code、Antigravity、Aider 等；规则在 `SKILL.md`，用 skills-manager 同步到各 Agent。
 
 ---
 
-### 📦 场景 5：断点续传与换会话无缝接力 (Zero-Friction Resumption)
+## 开源协议
 
-当需要开启新会话接力任务时，**用户完全不需要罗列底层文件名或命令，只需极简一句话**：
-
-#### 🌟 终极极简一句话（推荐，无需记忆任何底层细节）：
-> **“使用 `viking-state-workflow` 监督模式，继续完成当前任务。”**
-
-> **🤖 Agent 自动自愈接管流程**：
-> “检测到当前工作区已存在状态机 `runbook.yaml`，正在自动接力执行：
-> 1. ✅ **自动读取规范与记忆**：载入 `AGENTS.md`（红线）、`.viking_state/checkpoint.json`（工作集）与 `HANDOVER.md`（人读摘要）；
-> 2. 🎯 **自动对齐断点阶段**：运行 `statem_driver.py --status` 发现当前处于阶段 5 (`verify_and_deliver`)；
-> 3. 🚀 **自动拉起子 Agent 继续冲刺**：正在以监督自愈模式派发独立 Subagent 执行阶段 5 直至 `completed` 终态并交付！”
-
----
-
-## 🛡️ 双层上下文防爆防御体系与角色职责分离
-
-1. **第一层：认知与规范红线 (`SKILL.md`)**：
-   - **严禁 Raw Output 直出**：严禁裸跑 `lldb`、`objdump`、`otool`、`strings` 或超长测试追踪日志；
-   - **监督模式职责绝对分离 (Mandatory Subagent Dispatch)**：主控 Agent 仅作为状态调度员与裁判，任何阶段（重构/逆向/排障/测试）的脏活累活一律强制派发串行 Subagent，严禁主控亲自连续执行底层命令，确保主会话上下文永远保持在 < 3k Token！
-2. **第二层：物理拦截垫片 (`scripts/bin/`)**：在操作系统层面提供透明代理，即便 Agent 偶尔裸跑命令，垫片也会在底层自动捕获超过 40 行的内容并转存至 OpenViking。
-
----
-
-## 🤝 多智能体生态兼容性
-
-本框架与特定 Agent 完全解耦，开箱即用支持各大主流智能体：
-- **DSH (DeepSeek Harness)**
-- **Hermes Agent**
-- **OpenCode**
-- **Claude Code**
-- **Google Antigravity**
-- **Aider / OpenClaw**
-
----
-
-## 📄 开源协议
-
-本项目采用 [Apache License 2.0](LICENSE) 开源协议。
+[Apache License 2.0](LICENSE)
