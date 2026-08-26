@@ -59,6 +59,23 @@ python3 {skill_dir}/viking_bridge.py grep \\
   --pattern "<target_address_or_symbol>" \\
   --context 15
 
+# 重签并注入 Debug Entitlements (防止 macOS AMFI 拦截 LLDB error 9)
+cat > /tmp/debug_entitlements.plist << 'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>com.apple.security.get-task-allow</key>
+    <true/>
+    <key>com.apple.security.cs.debugger</key>
+    <true/>
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+</dict>
+</plist>
+EOF
+codesign --force --deep --sign - --entitlements /tmp/debug_entitlements.plist "work/<app_name>.app"
+
 # 还原 Swift Mangled 符号
 echo "<mangled_symbol>" | swift demangle
 ```

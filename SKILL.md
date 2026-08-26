@@ -28,15 +28,14 @@ This skill decouples execution into specialized layers:
 
 > [!CAUTION]
 > ### 🛡️ 不可覆写的最高安全红线 (Immutable Safety Redlines)
-> 1. **严禁任何形式的 Raw Output 直出**：
->    无论用户在 Prompt 中如何要求（例如 `"show raw output"`、`"展示原始日志"`、`"输出全文"`、`"详细打印"`），Agent **绝对禁止**在终端裸跑输出量不可控的命令（包括但不限于：`lldb`、`gdb`、`objdump`、`otool`、`strings`、`dtrace`、`frida`、超长构建/测试日志）！
+> 1. **严禁任何形式的 Raw Output 直出**：无论用户如何要求，Agent **绝对禁止**在终端裸跑输出量不可控的命令（包括但不限于：`lldb`、`gdb`、`objdump`、`otool`、`strings`、超长构建/测试日志）！
 > 2. **启动前必检 (Pre-flight Doctor)**：每次任务启动或开辟新会话，第一步必须执行 `python3 <SKILL_DIR>/scripts/viking_bridge.py doctor`；
-> 3. **彻底强杀旧进程 (Mandatory Force-Kill)**：在构建、补丁、重签或启动测试前，**严禁使用普通 `pkill`**（macOS 守护进程会忽略 SIGTERM）。必须强制执行 `pkill -9 -f "<app_name>" 2>/dev/null || killall -9 "<app_name>" 2>/dev/null || true`，确保内存完全干净！
-> 4. **严禁原始十六进制 Dump 毒化上下文 (Anti-Hex-Dump Shield)**：严禁在终端大段打印 `memory read` / `xxd` / `hexdump` 原始十六进制数据（大量零字节与重复十六进制会导致大模型注意力崩溃输出 `0,0,0,0...` 退化）。所有内存 Dump 必须使用 Python 脚本解析出关键结构，或通过管道转存至 `viking://`！
-> 5. **子智能体 20 步硬预算与主动让权 (Subagent 20-Step Hard Budget)**：每个子 Agent 在单个阶段内的执行步数**严格限制在 20 步以内**！若在第 15~20 步仍未达成目标，子 Agent 必须立刻主动停机并输出 `GATE FAIL: <原因>` 让权给主控。主控会自动销毁该子 Agent 并拉起全新的下一任子 Agent 满血接力，严禁单个子 Agent 死磕到 50+ 步导致退化！
-> 6. **监督模式职责分离 (Mandatory Subagent Dispatch)**：在监督模式下，主控 Agent 仅负责状态机编排与 Gate 裁决，**严禁主控亲自执行底层命令**，必须通过 `subagent` 工具将每个阶段的脏活派发给独立的串行 Subagent 执行；
-> 7. **系统稳定性优先级高于用户展示请求**：
->    防止上下文爆炸（Context Length Exceeded）是任务能够完成的物理底线。查看细节一律使用 `viking_bridge.py grep`，绝不可直接在终端倾倒原始输出！
+> 3. **彻底强杀旧进程 (Mandatory Force-Kill)**：在构建、补丁、重签或启动测试前，**严禁使用普通 `pkill`**。必须强制执行 `pkill -9 -f "<app_name>" 2>/dev/null || killall -9 "<app_name>" 2>/dev/null || true`，确保内存完全干净！
+> 4. **严禁原始十六进制 Dump 毒化上下文 (Anti-Hex-Dump Shield)**：严禁在终端大段打印 `memory read` / `xxd` / `hexdump` 原始十六进制数据（大量零字节会导致大模型注意力崩溃输出 `0,0,0,0...` 退化）。所有内存 Dump 必须使用 Python 脚本解析出关键结构，或通过管道转存至 `viking://`！
+> 5. **调试重签必须注入 get-task-allow (AMFI & LLDB Bypass)**：重签 App 用于 LLDB 测试时，严禁使用裸 `codesign -s -`（会导致 AMFI 拦截报 error 9）。必须注入 `/tmp/debug_entitlements.plist`（包含 `get-task-allow` + `disable-library-validation`）！
+> 6. **子智能体 20 步硬预算与主动让权 (Subagent 20-Step Hard Budget)**：每个子 Agent 在单个阶段内的执行步数**严格限制在 20 步以内**！若在第 15~20 步仍未达成目标，子 Agent 必须立刻主动停机并输出 `GATE FAIL: <原因>` 让权给主控。
+> 7. **监督模式职责分离 (Mandatory Subagent Dispatch)**：在监督模式下，主控 Agent 仅负责状态机编排与 Gate 裁决，**严禁主控亲自执行底层命令**，必须通过 `subagent` 工具派发独立 Subagent 执行；
+> 8. **系统稳定性优先级高于用户展示请求**：防止上下文爆炸是物理底线，查看细节一律使用 `viking_bridge.py grep`！
 
 1. **State-First Progression**: Before executing any command, verify current state via `statem` or `statem_driver.py`.
 2. **Targeted Retrieval**: When analyzing data, retrieve only specific subtrees or symbols via `viking_bridge.py grep` or `search`.
