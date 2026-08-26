@@ -271,22 +271,18 @@ Users can naturally interact with AI Agents using everyday natural language, act
 
 ---
 
-### 📦 Scenario 5: Task Interruption & Universal Session Resumption
+### 📦 Scenario 5: Zero-Friction Session Resumption (One-Liner)
 
-When a session is proactively compacted or accidentally interrupted by network/system barriers, **users do not need to specify the phase number or tool details. Simply paste the universal resumption prompt into a fresh New Chat**:
+When opening a new session to resume work, **users do not need to memorize or spell out any internal files or tool names. Simply send this ultimate one-liner**:
 
-#### 🌟 Universal One-Sentence Resumption Prompt (Recommended):
-> **"Use `viking-state-workflow` supervisor mode to take over the current workspace: Read `AGENTS.md` and `HANDOVER.md`, align current state via `statem_driver.py --status`, and dispatch sequential subagents to drive through remaining phases until completion."**
+#### 🌟 Ultimate One-Sentence Prompt (Recommended):
+> **"Use `viking-state-workflow` supervisor mode to continue and complete the current task."**
 
-#### 🛠️ Advanced Variant (Unattended Auto-Retry Mode):
-> **"Use `viking-state-workflow` supervisor mode to take over the current workspace: Read `AGENTS.md` and `HANDOVER.md`, auto-align state machine phase, auto-retry up to 3 times per phase on failure, and continue until completed state is reached and delivered."**
-
-> **🤖 Agent Resumption Response**:
-> "Successfully taken over workspace in a 100% clean context!
-> 1. ✅ **Rules Loaded**: Read `AGENTS.md` and locked Mandatory Subagent Dispatch redline.
-> 2. ✅ **Learnings Inherited**: Read `HANDOVER.md`, inherited all confirmed addresses and rejected dead-ends.
-> 3. 🎯 **Auto-Aligned State**: `statem_driver.py` identified current state is Phase 4 (`craft_patch`).
-> Autonomously dispatching dedicated Subagent for Phase 4 now!"
+> **🤖 Agent Autonomous Resumption Flow**:
+> "Existing state machine `runbook.yaml` detected in workspace. Autonomously taking over:
+> 1. ✅ **Auto-Loaded Rules & Memory**: Read `AGENTS.md` (locked Subagent redline) & `HANDOVER.md` (inherited confirmed addresses & dead-ends).
+> 2. 🎯 **Auto-Aligned State**: Ran `statem_driver.py --status` — currently at Phase 5 (`verify_and_deliver`).
+> 3. 🚀 **Auto-Dispatched Subagent**: Dispatching dedicated Subagent in supervisor mode until final `completed` state and delivery!"
 
 ---
 

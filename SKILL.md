@@ -44,28 +44,23 @@ This skill decouples execution into specialized layers:
 
 ---
 
-## 3. Autonomous Bootstrap Protocol (零门槛全自动引导协议)
+## 3. Autonomous Bootstrap & Resumption Protocol (零门槛全自动自愈协议)
 
 > [!IMPORTANT]
-> ### ⚡ 零门槛自动接管原则 (Zero-Friction Auto-Bootstrap)
-> 当用户在首轮对话中仅提供简短意图（例如：“*使用 viking-state-workflow [标准/监督模式] 开始一个新任务：[描述任务目标]*”），Agent **绝对不需要用户手动指导环境配置或逐步下达命令**，Agent **必须全自动依次执行以下 4 步标准初始化闭环**：
+> ### ⚡ 零门槛自动接管原则 (Zero-Friction Auto-Bootstrap & Resumption)
+> 用户**绝对不需要手动指示读取什么文件或分步指导**。无论用户是开始新任务还是接力旧任务，只需简短一句话，Agent **必须全自动判定并执行标准化接管闭环**：
 > 
+> #### 场景 A：断点续传与换会话接力（工作区已存在 `runbook.yaml` 时）
+> 当用户说：“*使用 viking-state-workflow [监督模式] 继续完成任务*”：
+> 1. **自动读取记忆与规范**：Agent 自动读取当前目录的 `AGENTS.md`（加载红线）与 `HANDOVER.md`（继承已知技术结论）；
+> 2. **自动对齐断点阶段**：自动运行 `python3 <SKILL_DIR>/scripts/statem_driver.py --status` 判定当前中断在第几阶段及 Gate 门禁；
+> 3. **自动拉起子 Agent 继续冲刺**：若指定监督模式，自动通过 `statem_supervisor.py` 派发独立 Subagent 执行当前阶段，全程自动化推进直至 `completed` 终态并交付！
+> 
+> #### 场景 B：全新任务初始化（工作区无 `runbook.yaml` 时）
+> 当用户说：“*使用 viking-state-workflow [监督模式] 开始新任务：[任务目标]*”：
 > 1. **自动执行 Doctor 体检**：调用 `python3 <SKILL_DIR>/scripts/viking_bridge.py doctor` 确认服务端与鉴权状态；
-> 2. **自动分析任务类型并合成工作区配置**：
->    - 智能分析用户 Prompt 及当前工作区文件特征，自动判断任务分类（`reverse_engineering` / `code_refactor` / `deep_debugging` / `general_long_task`）；
->    - 自动提取或推断项目名称，自动调用：
->      ```bash
->      python3 <SKILL_DIR>/scripts/workspace_init.py \
->        --project "<project_name>" \
->        --type "<detected_task_type>" \
->        --prompt "<user_prompt_goal>" \
->        --dir "."
->      ```
->      一秒为用户生成专属的 `AGENTS.md` 与状态机 `runbook.yaml`；
-> 3. **自动选择运行模式**：
->    - **监督模式 (Supervisor Mode)**：若用户指令包含“监督模式 / auto-heal / 自动重试”，主控 Agent 直接以 `python3 <SKILL_DIR>/scripts/statem_supervisor.py --max-retries 3` 启动串行子智能体自愈流；
->    - **标准单 Agent 模式**：调用 `python3 <SKILL_DIR>/scripts/statem_driver.py --status` 确认第一阶段目标；
-> 4. **自动启动第一阶段工作**：无缝直接开始执行阶段 1 的具体操作，并向用户汇报阶段性进展！
+> 2. **自动分析任务并合成配置**：自动识别任务分类（`reverse_engineering` / `code_refactor` / `deep_debugging` / `general_long_task`），调用 `workspace_init.py` 一秒生成定制版 `AGENTS.md`（自动注入历史避坑经验）与 `runbook.yaml`；
+> 3. **自动启动第一阶段工作**：无缝拉起第一阶段 Subagent 开始执行并汇报进展！
 
 ---
 

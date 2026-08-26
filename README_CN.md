@@ -270,22 +270,18 @@ python3 scripts/session_compactor.py \
 
 ---
 
-### 📦 场景 5：任务中断与跨会话无缝接力 (Universal Session Resumption)
+### 📦 场景 5：断点续传与换会话无缝接力 (Zero-Friction Resumption)
 
-当会话由于步数过长主动存盘，或发生网络断开、意外中断时，**无需关心当前是第几阶段，在崭新的新会话（New Chat）首轮中直接发送万能接力模板**：
+当需要开启新会话接力任务时，**用户完全不需要罗列底层文件名或命令，只需极简一句话**：
 
-#### 🌟 终极一句话万能模板（推荐直接复制）：
-> **“使用 `viking-state-workflow` 监督模式接管当前工作区：读取 `AGENTS.md` 和 `HANDOVER.md`，通过 `statem_driver.py --status` 自动对齐当前阶段，并派发子智能体继续推进至任务全部完成。”**
+#### 🌟 终极极简一句话（推荐，无需记忆任何底层细节）：
+> **“使用 `viking-state-workflow` 监督模式，继续完成当前任务。”**
 
-#### 🛠️ 高级变体（无人值守全自动重试版）：
-> **“使用 `viking-state-workflow` 监督模式接管当前工作区：读取 `AGENTS.md` 和 `HANDOVER.md`，自动对齐当前状态机阶段，每个阶段失败最多自动重建 3 次重试，持续推进直至 completed 最终态并交付。”**
-
-> **🤖 Agent 接力响应**：
-> “已在崭新上下文中满血接管工作区！
-> 1. ✅ **读取规范**：载入 `AGENTS.md`，锁定强制 Subagent 派发红线；
-> 2. ✅ **继承经验**：载入 `HANDOVER.md`，已获取上阶段确认的关键数据与避坑点；
-> 3. 🎯 **自动定焦断点**：`statem_driver.py` 检测到当前处于阶段 4 (`craft_patch`)；
-> 正在为阶段 4 全自动拉起独立 Subagent 继续冲刺！”
+> **🤖 Agent 自动自愈接管流程**：
+> “检测到当前工作区已存在状态机 `runbook.yaml`，正在自动接力执行：
+> 1. ✅ **自动读取规范与记忆**：载入 `AGENTS.md`（锁定 Subagent 派发红线）与 `HANDOVER.md`（继承已确认结论与避坑点）；
+> 2. 🎯 **自动对齐断点阶段**：运行 `statem_driver.py --status` 发现当前处于阶段 5 (`verify_and_deliver`)；
+> 3. 🚀 **自动拉起子 Agent 继续冲刺**：正在以监督自愈模式派发独立 Subagent 执行阶段 5 直至 `completed` 终态并交付！”
 
 ---
 
