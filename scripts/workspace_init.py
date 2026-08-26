@@ -219,10 +219,9 @@ def generate_agents_md(project_name: str, task_type: str, user_prompt: str, targ
 6. **子智能体 20 步硬预算与主动让权 (Subagent 20-Step Hard Budget)**：每个子 Agent 在单个阶段内的执行步数**严格限制在 20 步以内**！若在第 15~20 步仍未达成目标，子 Agent 必须立刻主动停机并输出 `GATE FAIL: <原因>` 让权给主控。
 7. **单向极简交接与立即终结 (One-Shot Compact Exit)**：子 Agent 完工或让权时，仅更新 HANDOVER.md，输出 ≤5 行极简结构化结论，并**立即彻底结束会话断连**。严禁输出长篇大论或与调度器进行多轮中继闲聊（No Ping-Pong），确保本地 GPU 显存与算力瞬间 100% 释放给主控！
 8. **Accessibility UI 零录屏权限极速验证 (Accessibility Inspector)**：UI 校验优先通过 `viking_bridge.py capture-ocr` 的 Accessibility 引擎读取文字树（无需录屏权限、毫秒级响应）；若遇 TCC 权限拦截，按终端提示开启「辅助功能」后按回车重试。
-9. **宿主架构动态自适应聚焦 (Target Architecture Pinning)**：通过 `uname -m` 动态识别当前宿主机原生架构（如 `arm64` 或 `x86_64`）。逆向分析与打补丁必须 100% 聚焦于与宿主机原生架构完全相符的单薄片进行分析与验证，严禁分心反编译非宿主架构（如跨架构异构薄片），彻底杜绝过度工程！
-10. **严禁 Shell 睡眠轮询 (Prohibition on Polling Loops)**：子 Agent 严禁在 Bash 中编写 `while sleep ...` 或定时轮询死循环，所有命令必须同步返回或立即交割！
-11. **多工作区进程物理隔离 (Multi-Workspace Process Shield)**：启动目标 App 前，必须清理其他工作区的同名常驻进程，严禁触发 macOS LaunchServices URL 跨工程静默路由劫持！
-12. **监督模式职责分离 (Mandatory Subagent Dispatch)**：在监督模式下，主控 Agent 仅负责状态机编排与 Gate 裁决，**严禁主控亲自执行底层命令**，必须通过 `subagent` 工具派发独立 Subagent 执行；
+9. **多工作区进程物理隔离 (Multi-Workspace Process Shield)**：启动目标 App 前，必须清理其他工作区的同名常驻进程，严禁触发 macOS LaunchServices URL 跨工程静默路由劫持！
+10. **本机架构优先渐进策略 (Native-First Architecture Strategy)**：面对 Universal 胖二进制时，**第一轮必须 100% 聚焦于本机原生架构（`uname -m`，如 Apple Silicon 下只跑 arm64）**！严禁在首轮分析或反编译非本机架构（x86_64）。待本机架构验证通过后，再按需镜像同步到另一架构并合成 Universal 胖二进制！
+11. **监督模式职责分离 (Mandatory Subagent Dispatch)**：在监督模式下，主控 Agent 仅负责状态机编排与 Gate 裁决，**严禁主控亲自执行底层命令**，必须通过 `subagent` 工具派发独立 Subagent 执行；
 9. **状态机驱动**：严格按照 `runbook.yaml` 的阶段推进，每阶段必须通过 Gate 校验；
 10. **会话主动交接**：单会话轮次过多时主动调用 `session_compactor.py` 存盘并开新会话接力。
 {recipe_section}

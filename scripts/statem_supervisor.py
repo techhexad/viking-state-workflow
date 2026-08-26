@@ -67,13 +67,9 @@ def classify_error(output_log: str) -> tuple:
 # Subagent Prompt Synthesizer
 # ==============================================================================
 
-import platform
-
-
 def generate_subagent_prompt(project: str, state_name: str, state_meta: dict, failure_context: str = None) -> str:
     desc = state_meta.get("description", "")
     gate = state_meta.get("gate", state_meta.get("gates", ""))
-    host_arch = platform.machine() or "arm64"
     
     prompt = f"""You are the specialized Subagent for Phase [{state_name}] in project [{project}].
 
@@ -84,13 +80,12 @@ def generate_subagent_prompt(project: str, state_name: str, state_meta: dict, fa
 {gate}
 
 ## Operational Rules & Strict Step Budget:
-1. 🛑 **Hard Step Budget (最大 20 步硬熔断)**: 你在当前阶段的执行预算严格限制在 **20 步** 以内！如果在第 15 步仍未达成目标，必须立即停止探索，将已定位地址和阻碍写入 HANDOVER.md，输出 `GATE FAIL: <原因>` 并正常退出。监督器会自动销毁你的会话，拉起全新的下一任子智能体接力，彻底防止长跑退化！
-2. 🎯 **宿主架构动态自适应聚焦 (Target Architecture Pinning)**: 当前宿主机原生架构为 [{host_arch}]。逆向分析与打补丁必须 100% 聚焦于原生的 [{host_arch}] 单架构薄片进行分析与验证，严禁分心反编译非宿主架构（如异构薄片），杜绝跨架构过度工程！
-3. ⛔ **严禁 Shell 睡眠轮询 (No Polling Loops)**: 严禁在 Bash 中编写 `while sleep ...` 或定时轮询死循环，所有命令必须同步返回或立即交割！
-4. 🛡️ **严禁内存 Dump 毒化上下文 (Anti-Hex-Dump Shield)**: 严禁在终端大段打印 `memory read` / `xxd` / `hexdump` 原始十六进制。所有内存 Dump 必须使用 Python 解析出关键结构或管道写入 `viking://`！
-5. 🧹 **彻底强杀旧进程 (Mandatory Force-Kill)**: 在构建、补丁、重签或启动测试前，必须强制执行 `pkill -9 -f "<app_name>" 2>/dev/null || killall -9 "<app_name>" 2>/dev/null || true`，确保内存完全干净！
-6. 📦 **重型命令必须进 Viking**: 所有反汇编、长日志必须使用 `python3 {SCRIPT_DIR}/viking_bridge.py run --dest "viking://knowledge/{project}/..." --cmd "..."`。
-7. ⚡ **单向极简交接与立即终结 (One-Shot Compact Exit)**: 达成 Gate 或熔断退出时，仅更新 HANDOVER.md，输出 ≤5 行极简结构化结论，并**立即彻底结束会话退出**。严禁与调度器进行多轮 Ping-Pong 中继闲聊！
+1. 🛑 **Hard Step Budget (最大 20 步硬熔断)**: 你在当前阶段的执行预算严格限制在 **20 步** 以内！严禁在单会话内死磕超过 20 步。如果在第 15 步仍未达成目标，必须立即停止探索，将已定位地址和阻碍写入 HANDOVER.md，输出 `GATE FAIL: <原因>` 并正常退出。监督器会自动销毁你的会话，拉起全新的下一任子智能体接力，彻底防止长跑退化！
+2. 🛡️ **严禁内存 Dump 毒化上下文 (Anti-Hex-Dump Shield)**: 严禁在终端大段打印 `memory read` / `xxd` / `hexdump` 原始十六进制（大量零字节会导致大模型注意力崩溃输出 0,0,0 退化）。所有内存 Dump 必须使用 Python 解析出关键结构或管道写入 `viking://`！
+3. 🧹 **彻底强杀旧进程 (Mandatory Force-Kill)**: 在构建、补丁、重签或启动测试前，必须强制执行 `pkill -9 -f "<app_name>" 2>/dev/null || killall -9 "<app_name>" 2>/dev/null || true`，确保内存完全干净！
+4. 📦 **重型命令必须进 Viking**: 所有反汇编、长日志必须使用 `python3 {SCRIPT_DIR}/viking_bridge.py run --dest "viking://knowledge/{project}/..." --cmd "..."`。
+5. ⚡ **单向极简交接与立即终结 (One-Shot Compact Exit)**: 达成 Gate 或熔断退出时，仅需更新 HANDOVER.md，输出 ≤5 行极简结构化结论（如 `GATE_STATUS: PASS | PATCHES: [0x5445C7, 0x51E050] | VERIFY: OK`），并**立即彻底结束会话退出**。严禁输出长篇废话或与调度器进行多轮 Ping-Pong 中继闲聊，确保本地 GPU 显存与算力瞬间 100% 释放给主控！
+6. 🍏 **本机架构优先渐进策略 (Native-First Architecture)**: 面对 Universal 胖二进制时，**第一轮必须 100% 聚焦于本机原生架构（`uname -m`，如 Apple Silicon 下只跑 arm64）**！严禁在首轮分析或反编译非本机架构（x86_64）。待本机架构验证通过后，再按需镜像同步到另一架构并合成 Universal 胖二进制！
 """
 
     if failure_context:
