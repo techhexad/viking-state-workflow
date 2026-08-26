@@ -270,15 +270,22 @@ python3 scripts/session_compactor.py \
 
 ---
 
-### 📦 场景 5：主动会话接力（换新会话满血复活）
-> **👤 用户**：
-> “当前会话 Token 已经 2 万多了，做一下存盘，我们开新会话继续打包。”
+### 📦 场景 5：任务中断与跨会话无缝接力 (Universal Session Resumption)
 
-> **🤖 Agent**：
-> “已运行 `session_compactor.py` 生成 `HANDOVER.md`！
-> 📊 当前上下文已压缩为 400 Token。请在 DSH 中开启一个 **New Chat（新会话）**，并在首轮发送：
-> > *‘请读取 AGENTS.md 和 HANDOVER.md，继续执行 package_delivery 阶段。’*
-> 新会话将以极轻量上下文满血继续接力！”
+当会话由于步数过长主动存盘，或发生网络断开、意外中断时，**无需关心当前是第几阶段，在崭新的新会话（New Chat）首轮中直接发送万能接力模板**：
+
+#### 🌟 终极一句话万能模板（推荐直接复制）：
+> **“使用 `viking-state-workflow` 监督模式接管当前工作区：读取 `AGENTS.md` 和 `HANDOVER.md`，通过 `statem_driver.py --status` 自动对齐当前阶段，并派发子智能体继续推进至任务全部完成。”**
+
+#### 🛠️ 高级变体（无人值守全自动重试版）：
+> **“使用 `viking-state-workflow` 监督模式接管当前工作区：读取 `AGENTS.md` 和 `HANDOVER.md`，自动对齐当前状态机阶段，每个阶段失败最多自动重建 3 次重试，持续推进直至 completed 最终态并交付。”**
+
+> **🤖 Agent 接力响应**：
+> “已在崭新上下文中满血接管工作区！
+> 1. ✅ **读取规范**：载入 `AGENTS.md`，锁定强制 Subagent 派发红线；
+> 2. ✅ **继承经验**：载入 `HANDOVER.md`，已获取上阶段确认的关键数据与避坑点；
+> 3. 🎯 **自动定焦断点**：`statem_driver.py` 检测到当前处于阶段 4 (`craft_patch`)；
+> 正在为阶段 4 全自动拉起独立 Subagent 继续冲刺！”
 
 ---
 
