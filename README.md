@@ -252,7 +252,7 @@ viking-state-workflow/
 ├── README.md / README_CN.md
 ├── LICENSE
 ├── scripts/
-│   ├── workspace_init.py       # emit cracking AGENTS.md + runbook.yaml
+│   ├── workspace_init.py       # emit AGENTS.md + runbook.yaml + .pi/ host caps
 │   ├── viking_bridge.py        # doctor / run / grep / ocr / note / 8-call timeout
 │   ├── working_set.py          # checkpoint, discoveries, sprint_budget
 │   ├── statem_driver.py        # phase + Gate
@@ -262,9 +262,12 @@ viking-state-workflow/
 │   ├── viking_env.sh
 │   └── bin/                    # lldb / objdump / otool shims (>40 lines → VFS)
 └── templates/
+    ├── ov.conf.template
+    ├── runbook_template.yaml
+    └── pi/                     # copied into workspace `.pi/` on init (Pi only)
 ```
 
-Works with DSH, Hermes, OpenCode, Claude Code, Antigravity, Aider, and similar hosts. Parent dispatch lives in `SKILL.md` (kept short for local 27B). Project redlines are in generated `AGENTS.md`; child rules in `.viking_state/sprint_prompt.txt`. Sync with skills-manager.
+Works with DSH, Hermes, OpenCode, Claude Code, Antigravity, Aider, Pi, and similar hosts. Parent dispatch lives in `SKILL.md` (kept short for local 27B). Project redlines are in generated `AGENTS.md`; child rules in `.viking_state/sprint_prompt.txt`. Pi 20-turn / no-bash-disasm caps live in workspace `.pi/` (not `~/.pi/agent`). Sync with skills-manager.
 
 ---
 

@@ -36,6 +36,7 @@ a 5th. Do not summarize death counts.
    ```bash
    $S/workspace_init.py --project "<name>" --type "reverse_engineering" --prompt "<user goal>" --dir "."
    ```
+   Writes `AGENTS.md`, `runbook.yaml`, and `.pi/` (Pi host caps). Other hosts ignore `.pi/`.
    Other `--type` values only if the user is clearly not cracking.
 
 3. `$S/statem_driver.py --status`. Read `.viking_state/checkpoint.json`. Do not cat `HANDOVER.md` unless asked.

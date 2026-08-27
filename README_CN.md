@@ -252,7 +252,7 @@ viking-state-workflow/
 ├── README.md / README_CN.md
 ├── LICENSE
 ├── scripts/
-│   ├── workspace_init.py       # 生成破解用 AGENTS.md + runbook.yaml
+│   ├── workspace_init.py       # 生成 AGENTS.md + runbook.yaml + `.pi/` 宿主上限
 │   ├── viking_bridge.py        # doctor / run / grep / ocr / note / 8 步超时
 │   ├── working_set.py          # checkpoint、discoveries、sprint_budget
 │   ├── statem_driver.py        # 阶段状态与 Gate
@@ -262,9 +262,12 @@ viking-state-workflow/
 │   ├── viking_env.sh
 │   └── bin/                    # lldb / objdump / otool 垫片（超 40 行转存 VFS）
 └── templates/
+    ├── ov.conf.template
+    ├── runbook_template.yaml
+    └── pi/                     # init 时拷到工作区 `.pi/`（仅 Pi 读取）
 ```
 
-兼容 DSH、Hermes、OpenCode、Claude Code、Antigravity、Aider 等。主控调度写在短的 `SKILL.md`（给本地 27B）；项目红线在生成的 `AGENTS.md`，子 Agent 规则在 `.viking_state/sprint_prompt.txt`。用 skills-manager 同步。
+兼容 DSH、Hermes、OpenCode、Claude Code、Antigravity、Aider、Pi 等。主控调度写在短的 `SKILL.md`（给本地 27B）；项目红线在生成的 `AGENTS.md`，子 Agent 规则在 `.viking_state/sprint_prompt.txt`。Pi 的 20 步 / 禁止 bash 扫盘写在工作区 `.pi/`，不进 `~/.pi/agent`。用 skills-manager 同步。
 
 ---
 

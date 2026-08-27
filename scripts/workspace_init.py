@@ -14,6 +14,7 @@ Zero external dependencies (pure standard library).
 import sys
 import os
 import argparse
+import shutil
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 SKILL_ROOT = os.path.dirname(SCRIPT_DIR)
@@ -321,8 +322,35 @@ def generate_runbook_yaml(project_name: str, task_type: str, user_prompt: str, t
     print(f"✅ Generated tailored runbook.yaml: {runbook_file}")
 
 
+def install_pi_assets(target_dir: str) -> None:
+    """Copy skill-owned Pi host caps into the workspace `.pi/` directory.
+
+    Other hosts ignore `.pi/`. Existing extra files (e.g. skill symlinks) are left in place.
+    """
+    src_root = os.path.join(SKILL_ROOT, "templates", "pi")
+    if not os.path.isdir(src_root):
+        print("⚠️  templates/pi missing; skip Pi host caps")
+        return
+    dest_root = os.path.join(os.path.abspath(target_dir), ".pi")
+    copied = 0
+    for dirpath, _dirnames, filenames in os.walk(src_root):
+        rel = os.path.relpath(dirpath, src_root)
+        for name in filenames:
+            if name.startswith("."):
+                continue
+            src = os.path.join(dirpath, name)
+            dst_dir = dest_root if rel == "." else os.path.join(dest_root, rel)
+            os.makedirs(dst_dir, exist_ok=True)
+            dst = os.path.join(dst_dir, name)
+            shutil.copy2(src, dst)
+            print(f"✅ Pi asset: {dst}")
+            copied += 1
+    if copied:
+        print(f"✅ Installed {copied} Pi host-cap files under {dest_root}")
+
+
 def main():
-    parser = argparse.ArgumentParser(description="Auto-Synthesize tailored AGENTS.md & runbook.yaml for any project")
+    parser = argparse.ArgumentParser(description="Auto-Synthesize tailored AGENTS.md, runbook.yaml, and Pi host caps")
     parser.add_argument("--project", required=True, help="Project / repository name (e.g. target_app, my_refactor)")
     parser.add_argument("--type", default="general_long_task", choices=["reverse_engineering", "code_refactor", "deep_debugging", "general_long_task"], help="Task archetype")
     parser.add_argument("--prompt", default="", help="User's original prompt description")
@@ -335,6 +363,7 @@ def main():
     print(f"🚀 Initializing Viking State Workflow for '{args.project}' ({args.type})...")
     generate_agents_md(args.project, args.type, args.prompt, target_dir)
     generate_runbook_yaml(args.project, args.type, args.prompt, target_dir)
+    install_pi_assets(target_dir)
     print(f"🎉 Project '{args.project}' is fully configured with zero context-overflow risk!\n")
 
 

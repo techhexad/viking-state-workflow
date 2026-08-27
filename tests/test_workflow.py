@@ -324,6 +324,26 @@ class TestSupervisor(unittest.TestCase):
         )
 
 
+class TestPiAssets(unittest.TestCase):
+    def test_init_copies_pi_host_caps(self):
+        tmp = tempfile.mkdtemp(prefix="viking-pi-")
+        try:
+            workspace_init.install_pi_assets(tmp)
+            root = os.path.join(tmp, ".pi")
+            self.assertTrue(os.path.isfile(os.path.join(root, "settings.json")))
+            self.assertTrue(os.path.isfile(os.path.join(root, "extensions", "sprint-guard.ts")))
+            self.assertTrue(os.path.isfile(os.path.join(root, "agents", "worker.md")))
+            with open(os.path.join(root, "agents", "worker.md"), encoding="utf-8") as f:
+                body = f.read()
+            self.assertIn("viking_bridge.py grep", body)
+            with open(os.path.join(root, "extensions", "sprint-guard.ts"), encoding="utf-8") as f:
+                guard = f.read()
+            self.assertIn("MAX_CHILD_TURNS", guard)
+            self.assertIn("main_disasm.asm", guard)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
 class TestParentHalt(IsolatedWorkspace):
     def test_supervisor_prints_parent_halt(self):
         _, out = self._stdout(
