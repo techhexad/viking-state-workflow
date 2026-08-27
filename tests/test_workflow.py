@@ -330,9 +330,11 @@ class TestParentHalt(IsolatedWorkspace):
             statem_supervisor.supervise_phase, self.runbook, sprint_goal="unpack only"
         )
         self.assertIn("PARENT HALT", out)
-        self.assertIn("Do NOT: bash / sleep / list_agents", out)
         self.assertIn("PROMPT_FILE:", out)
         self.assertIn("DISPATCH_PROMPT:", out)
+        self.assertIn("SAME-TURN REQUIRED", out)
+        self.assertIn("SESSION_CAP:", out)
+        self.assertIn("FAKE_DEATH:", out)
         self.assertNotIn("Working set (do not re-derive", out)
         prompt_path = working_set.sprint_prompt_file()
         self.assertTrue(os.path.isfile(prompt_path))
@@ -341,7 +343,8 @@ class TestParentHalt(IsolatedWorkspace):
         self.assertIn("Working set (do not re-derive", body)
         self.assertIn("unpack only", body)
         self.assertIn("sprint-done", body)
-        self.assertIn("First tool call must be the work", out)
+        self.assertIn("Forbidden: `skill`", body)
+        self.assertIn("First tool call must be viking_bridge", out)
 
 
 if __name__ == "__main__":

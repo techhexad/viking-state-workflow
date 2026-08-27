@@ -224,7 +224,7 @@ def generate_agents_md(project_name: str, task_type: str, user_prompt: str, targ
 8. **UI 验收必须人工（ask-ui）**：禁止自动截屏/OCR 重试。阶段 5 调用一次 `ask-ui`，人自己点进授权页并回答 y/n。`ASK_UI: NEED_HUMAN` 交给主控问人，禁止循环重试。
 9. **多工作区进程物理隔离 (Multi-Workspace Process Shield)**：启动目标 App 前，必须清理其他工作区的同名常驻进程，严禁触发 macOS LaunchServices URL 跨工程静默路由劫持！
 10. **本机架构优先渐进策略 (Native-First Architecture Strategy)**：面对 Universal 胖二进制时，**第一轮必须 100% 聚焦于本机原生架构（`uname -m`，如 Apple Silicon 下只跑 arm64）**！严禁在首轮分析或反编译非本机架构（x86_64）。待本机架构验证通过后，再按需镜像同步到另一架构并合成 Universal 胖二进制！
-11. **监督模式职责分离**：主控只拆题、派一个短冲刺、读 checkpoint、判 Gate。派完立刻停轮。严禁 bash/sleep/list_agents 轮询，严禁再开 subagent 盯另一个 subagent，严禁主控 grep 反汇编。乱码输出则停机，新开对话读 checkpoint。
+11. **监督模式职责分离**：主控只拆题、派一个短冲刺、读 checkpoint、判 Gate。`statem_supervisor.py` 与 `subagent` 必须同一回合连发，中间禁止 bash。本对话最多 4 个 subagent，第 4 个回来后新开对话。无 `SPRINT_STATUS` 或 closing 过长 = 假死，忽略正文，重派或新开。主控禁止 write/python 扫盘。派完立刻停轮。严禁 sleep/list_agents。乱码则停机读 checkpoint。
 12. **状态机驱动**：严格按照 `runbook.yaml` 的阶段推进；短冲刺 DONE ≠ 阶段完成，阶段推进必须 `statem_driver.py --advance --gate-check`。
 13. **系统稳定性优先**：防止上下文爆炸是物理底线，查看细节一律使用 `viking_bridge.py grep`，禁止裸 cat/grep `work/disasm`、local_vfs 或大文件。主控派子 agent 时只注入 supervisor 的 `DISPATCH_PROMPT`，禁止 cat `sprint_prompt.txt`。
 {recipe_section}

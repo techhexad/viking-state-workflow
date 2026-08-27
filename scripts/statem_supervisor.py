@@ -92,22 +92,20 @@ You answer ONE question, persist the working set, then stop. You do not finish t
 {gate}
 
 ## Rules:
-1. One question only. First tool call MUST do that work (`grep`/`run`/`ask-ui`). Do not spend explore steps reading `README.md`, `SKILL.md`, `--help`, or `viking_bridge.py` source.
-2. Every step must include a tool call until `sprint-done`. Never end a turn with a plan-only text message without a tool call — the host will treat that as finished and terminate you. Keep thinking under 8 lines.
-3. Exploration budget: at most 8 `viking_bridge.py` explore calls (`run`/`grep`/`ocr`). `note`/`checkpoint`/`ask-ui`/`sprint-done` do not count. Calls 6–7 are refused (drain). Call 8 auto-writes checkpoint.json and exits 20.
-   UI verify is `ask-ui` once (human y/n). Do not call capture-ocr in a retry loop.
-4. Exact CLI Invocation Cheatsheet (Copy & Run directly):
-   - **Grep Pattern/Regex**:
-     `python3 {SCRIPT_DIR}/viking_bridge.py grep --uri "viking://knowledge/{project}/disasm/cstrings.txt" --pattern "<regex>" --context 10`
-   - **Run Heavy Command / Offload**:
-     `python3 {SCRIPT_DIR}/viking_bridge.py run --dest "viking://knowledge/{project}/disasm/out.log" --cmd "<command>"`
-   - **Persist Intermediate Fact**:
-     `python3 {SCRIPT_DIR}/viking_bridge.py note --confirmed "<fact>" --rejected "<dead-end>" --next "<next question>"`
-   - **Complete Sprint (Mandatory Last Action)**:
-     `python3 {SCRIPT_DIR}/viking_bridge.py sprint-done --status DONE|YIELD|FAIL --confirmed "<fact>" --next "<next>"`
+1. First tool call MUST be the sprint work: `viking_bridge.py grep` or `run` or `ask-ui`.
+   Forbidden: `skill`, `doctor`, `--help`, reading `viking_bridge.py` / README / SKILL, writing python/awk/scan scripts.
+2. Every step must include a tool call until `sprint-done`. Never end a turn with a plan-only message.
+   Keep thinking under 8 lines. Do not invent multi-pass scanners; one `grep --pattern` is enough.
+3. Exploration budget: at most 8 `run`/`grep`/`ocr`. `note`/`checkpoint`/`ask-ui`/`sprint-done` do not count.
+   Calls 6–7 drain. Call 8 yields (exit 20). `ask-ui` once; never loop `capture-ocr`.
+4. Copy these:
+   `python3 {SCRIPT_DIR}/viking_bridge.py grep --uri "viking://knowledge/{project}/disasm/cstrings.txt" --pattern "<regex>" --context 10`
+   `python3 {SCRIPT_DIR}/viking_bridge.py run --dest "viking://knowledge/{project}/disasm/out.log" --cmd "<command>"`
+   `python3 {SCRIPT_DIR}/viking_bridge.py note --confirmed "<fact>" --next "<next>"`
+   `python3 {SCRIPT_DIR}/viking_bridge.py sprint-done --status DONE|YIELD|FAIL --confirmed "<fact>" --next "<next>"`
    Never grep/cat/head `work/disasm`, `~/.openviking/local_vfs`, or `.viking_vfs`.
-5. Closing message = the 4 lines sprint-done printed. The host splices your last message into the parent — a long closing poisons the supervisor.
-6. Native-first: on Universal binaries, this sprint stays on `uname -m` only.
+5. Closing message = only the 4 lines `sprint-done` printed. A long closing poisons the parent.
+6. Native-first: this sprint stays on `uname -m` only.
 """
 
     if failure_context:
@@ -180,26 +178,30 @@ def supervise_phase(runbook_path: str, max_retries: int = 3, auto_execute_cmd: s
             question = sprint_goal or working_set.load_checkpoint().get("next_action") or curr_state
             dispatch = (
                 f"Read {prompt_path} and do only that sprint. "
-                f"First tool call must be the work (grep/run/ask-ui), not skill/help/doctor. "
+                f"First tool call must be viking_bridge grep/run/ask-ui, not skill/help/doctor/python. "
                 f"Every step must include a tool call until sprint-done. "
                 f"Finish with: python3 {SCRIPT_DIR}/viking_bridge.py sprint-done "
                 f"--status DONE|YIELD|FAIL --confirmed \"<fact>\" --next \"<next>\". "
-                f"Do not paste the prompt file or a long closing message."
+                f"Closing message = those 4 lines only."
             )
             print("📝 Sprint card (do not cat PROMPT_FILE in this parent turn):")
             print("-" * 50)
             print(f"PROMPT_FILE: {prompt_path}")
             print(f"SPRINT_GOAL: {question}")
             print(f"PHASE: {curr_state}")
+            print("SESSION_CAP: 4 subagent calls in this parent chat, then new conversation")
+            print("FAKE_DEATH: no SPRINT_STATUS line, or closing >>2k chars → ignore closing, retry or new-chat")
             print(f"DISPATCH_PROMPT: {dispatch}")
             print("-" * 50)
-            print("ℹ️  Sprint DONE ≠ phase complete. Advance the phase only via:")
+            print("SAME-TURN REQUIRED: next tool in THIS turn MUST be `subagent` with DISPATCH_PROMPT.")
+            print("Do not bash/status/write between this card and `subagent`. Do not end the turn on the card.")
+            print("ℹ️  Sprint DONE ≠ phase complete. YIELD → do not --advance.")
             print(f"    python3 {SCRIPT_DIR}/statem_driver.py --advance --gate-check")
             print()
             print("=" * 65)
-            print("PARENT HALT — this turn is over after you dispatch `subagent`.")
-            print("Do NOT: bash / sleep / list_agents / grep disasm / spawn a watcher child.")
-            print("Wait for the host to deliver the child result as the next user message.")
+            print("PARENT HALT — after the `subagent` tool returns started, this turn is over.")
+            print("Do NOT: sleep / list_agents / grep disasm / spawn a watcher / write scan scripts.")
+            print("Wait for the host to deliver the child as the next user message.")
             print("A 'goal round' while the child is running is not a reason to poll.")
             print("=" * 65)
             return 0

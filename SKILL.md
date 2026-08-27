@@ -9,83 +9,68 @@ description: >-
 
 # Viking State Workflow — parent dispatcher
 
-You are the **supervisor**. You do not reverse-engineer, grep disassembly, or
-run `objdump`. Scripts and the child do that. This file is intentionally short
-so a local 27B does not collapse after reading it.
+You are the **supervisor**. You do not reverse-engineer, write scan scripts,
+or `objdump`. The child does the work via `viking_bridge.py`. This file is short
+on purpose (local 27B).
 
-Long redlines, XREF SOP, codesign, and UI steps live in:
-
-- generated workspace `AGENTS.md` (`workspace_init.py`)
-- `.viking_state/sprint_prompt.txt` (written by `statem_supervisor.py`)
+Child rules live in `.viking_state/sprint_prompt.txt`. Project redlines live in
+generated `AGENTS.md`.
 
 `S = python3 "<SKILL_DIR>/scripts"`
 
-## Every turn (new project or resume)
+**Parent tools this chat (whitelist):** `skill` once, then only
+`bash` (`doctor` / `workspace_init` / `status` / `supervisor` / `checkpoint` /
+`advance` / `rollback`) and `subagent`.  
+Forbidden as parent: `write` / `edit`, `python`/`awk` over disasm, `xxd`,
+`find` on `work/disasm`, `grep`, `run`, `ocr`, `ask-ui`, a second `skill` load.
 
-1. `$S/viking_bridge.py doctor`  
-   If it fails, start OpenViking (`openviking-server`) and rerun doctor. Do not continue blind.
+**This conversation: at most 4 `subagent` calls.** After the 4th child returns,
+stop and tell the user to open a **new chat** in the same folder. Do not dispatch
+a 5th. Do not summarize death counts.
 
-2. **No `runbook.yaml` in this workspace → new project. You must init before anything else:**
+## Every turn
+
+1. `$S/viking_bridge.py doctor` — if it fails, start `openviking-server`, rerun. No blind continue.
+
+2. **No `runbook.yaml` → you must init first:**
    ```bash
-   $S/workspace_init.py \
-     --project "<name>" \
-     --type "reverse_engineering" \
-     --prompt "<user goal>" \
-     --dir "."
+   $S/workspace_init.py --project "<name>" --type "reverse_engineering" --prompt "<user goal>" --dir "."
    ```
-   Use `code_refactor` / `deep_debugging` / `general_long_task` only if the user is clearly not cracking. This writes `AGENTS.md` + `runbook.yaml`. Skipping init on an empty folder is a hard fail.
+   Other `--type` values only if the user is clearly not cracking.
 
-3. `$S/statem_driver.py --status`  
-   Read `.viking_state/checkpoint.json` (and `AGENTS.md` if you need the project goal). Do not cat `HANDOVER.md` unless the user asks.
+3. `$S/statem_driver.py --status`. Read `.viking_state/checkpoint.json`. Do not cat `HANDOVER.md` unless asked.
 
-4. One sprint:
+4. **Same turn, two tools, no bash in between:**
    ```bash
-   $S/statem_supervisor.py --runbook runbook.yaml --sprint-goal "<one question>"
+   $S/statem_supervisor.py --runbook runbook.yaml --sprint-goal "<one question or checkpoint.next_action>"
    ```
-   If `checkpoint.next_action` is set, use that as `--sprint-goal`.
+   Then immediately `subagent` with prompt **exactly** `DISPATCH_PROMPT` from that stdout.
+   Do not cat `sprint_prompt.txt`. Do not add notes. Do not end the turn after the card.
 
-5. Supervisor stdout is a **card**: `PROMPT_FILE`, `SPRINT_GOAL`, `DISPATCH_PROMPT`.  
-   Spawn **one** `subagent` whose prompt is **exactly** `DISPATCH_PROMPT`.  
-   Do not cat `sprint_prompt.txt`. Do not paste the checkpoint. Do not add extra instructions.
+5. After `subagent` returns: **stop this turn.** No `sleep` / `list_agents` / watcher child.
+   A DSH `goal_round` is not permission to keep going.
 
-6. **Stop this turn.** Wait for the host to return the child.  
-   Do not `sleep`, `list_agents`, `job_output` poll, grep disasm, or spawn a second child to watch the first. A DSH `goal_round` is not permission to keep going.
+6. When the host delivers the child (next user message), classify in **one short tool sequence**, no essay:
+   - **Fake death** (no `SPRINT_STATUS:` line, or closing longer than ~2k chars):
+     **Ignore the closing text.** Do not quote it. If this chat already has 4 children → tell user to new-chat.
+     Else same-turn: supervisor + subagent retry of `next_action` / same sprint-goal, then stop.
+   - `DONE` → `$S/statem_driver.py --advance --gate-check`. Gate fail: dispatch `next_action`, stop. No `--force`.
+   - `YIELD` / `DRAIN` → **do not advance.** Dispatch `next_action`, stop.
+   - `FAIL` / recoverable: one retry dispatch, stop.
+   - Fatal (SIP, sudo, missing DMG, daemon down): stop, tell the human.
+   - `ASK_UI: NEED_HUMAN`: ask y/n in this chat. Do not loop `ask-ui`.
+   - Phase jumped but work missing → `$S/statem_driver.py --rollback`, then dispatch `next_action`.
 
-7. When the child returns, do **not** write an analysis essay (maxTokens will kill the turn with no tool call):
-   - `DONE` → `$S/statem_driver.py --advance --gate-check`. Gate fail: dispatch `next_action`, stop. Do not `--force`.
-   - `YIELD` / `DRAIN` → **do not advance**. The phase is not done. Dispatch `checkpoint.next_action` as the next sprint, then stop.
-   - `FAIL` / recoverable (codesign, text-busy, unlicensed UI): note the dead-end, dispatch one retry, stop.
-   - Fatal (SIP, sudo password, missing DMG, daemon down): stop and tell the human.
-   - `ASK_UI: NEED_HUMAN` (exit 4): ask the user y/n in this chat. Do not retry `ask-ui` in a loop.
-   - False-positive advance (phase jumped but the work is missing): `$S/statem_driver.py --rollback`, then dispatch `next_action`.
+7. Mixed-language garbage or token loops: **stop.** New chat, same workspace, continue from checkpoint.
 
-8. If this chat emits mixed-language garbage or looping tokens: **stop**. New chat, same workspace, user says to continue. Load checkpoint. Never continue inside a poisoned thread.
-
-Child last command is `viking_bridge.py sprint-done`. Closing text must be those 4 lines. Heavy IO is `viking_bridge.py run|grep` only (streams to local VFS; HTTP is skipped for large files).
-
-## Parent command index
+## Command index
 
 | When | Command |
 | :--- | :--- |
-| Start of session | `viking_bridge.py doctor` |
-| Empty workspace | `workspace_init.py --project --type --prompt --dir .` |
-| Where am I | `statem_driver.py --status` |
-| Dispatch | `statem_supervisor.py --sprint-goal "..."` then one `subagent` |
-| After a real gate | `statem_driver.py --advance --gate-check` |
-| False-positive jump | `statem_driver.py --rollback` |
-| Slim facts | `viking_bridge.py checkpoint` (add `--full` only if debugging) |
-
-Do not run `run` / `grep` / `ocr` / `ask-ui` as the parent. Those belong in the child.
-
-## Child command index (Zero-Discovery Cheatsheet)
-
-| Action | Exact Command Syntax |
-| :--- | :--- |
-| **Grep / Search** | `python3 $S/viking_bridge.py grep --uri "viking://knowledge/<project>/disasm/cstrings.txt" --pattern "<regex>" --context 10` |
-| **Heavy Command** | `python3 $S/viking_bridge.py run --dest "viking://knowledge/<project>/disasm/out.log" --cmd "<cmd>"` |
-| **Note Intermediate Fact** | `python3 $S/viking_bridge.py note --confirmed "<fact>" --rejected "<dead-end>" --next "<next>"` |
-| **Complete Sprint (Mandatory)**| `python3 $S/viking_bridge.py sprint-done --status DONE --confirmed "<fact>" --next "<next>"` |
-| **UI Inspection (Human y/n)** | `python3 $S/viking_bridge.py ask-ui --app "work/App.app"` |
-
-Child agents must NEVER read `README.md` or `--help`. Start directly with tool execution.
-
+| Start | `viking_bridge.py doctor` |
+| Empty folder | `workspace_init.py --project --type --prompt --dir .` |
+| Where | `statem_driver.py --status` |
+| Dispatch | `statem_supervisor.py --sprint-goal "..."` **then** `subagent` (same turn) |
+| Real gate | `statem_driver.py --advance --gate-check` |
+| False jump | `statem_driver.py --rollback` |
+| Slim facts | `viking_bridge.py checkpoint` |
