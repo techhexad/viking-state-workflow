@@ -50,6 +50,10 @@ You do not need to mention micro-sprints, the 8-call cap, or checkpoint. The age
 
 The parent only decomposes questions, reads the checkpoint, and judges Gates. It must not finish a whole phase itself.
 
+After `statem_supervisor.py --sprint-goal` + one `subagent` call, **stop the turn**. Do not `sleep`, `list_agents`, grep a 200MB disasm, or spawn a watcher child. Local GPU runs one inference at a time — a watcher child stalls the sprint. Confirmed facts are clipped to 240 characters so a huge `note` cannot poison the next sprint. If this chat starts emitting mixed-language garbage, kill it and resume from `.viking_state/checkpoint.json` in a new chat — DSH will not detect degeneration.
+
+DSH host knobs (not part of this repo): keep `streamIdleTimeoutMs` on the order of minutes, not 30; cap `maxTokens` (e.g. 2048) so one stuck generation cannot dump 32k garbage into history.
+
 ---
 
 ## Cracking playbook

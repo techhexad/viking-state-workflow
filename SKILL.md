@@ -37,7 +37,7 @@ This skill decouples execution into specialized layers:
 > 8. **UI 验收必须人工（ask-ui）**：禁止自动 `open` + `Cmd+,` + 截全屏/OCR 重试。授权页每个 App 不同，自动导航打不开目标页面。阶段 5 调用一次 `viking_bridge.py ask-ui`，让人自己点进 License/Pro 页并回答 y/n。`ASK_UI: NEED_HUMAN`（exit 4）交给主控问人，禁止循环重试。可选：人截好图后再 `ocr <png>`。
 > 9. **多工作区进程物理隔离 (Multi-Workspace Process Shield)**：启动目标 App 前，必须清理其他工作区的同名常驻进程，严禁触发 macOS LaunchServices URL 跨工程静默路由劫持！
 > 10. **本机架构优先渐进策略 (Native-First Architecture Strategy)**：面对 Universal 胖二进制时，**第一轮必须 100% 聚焦于本机原生架构（`uname -m`，如 Apple Silicon 下只跑 arm64）**！严禁在单会话中同时反编译两个架构。待本机架构验证翻绿交付后，再向用户询问或执行命令快速镜像同步到另一架构（x86_64）并合成 Universal 胖二进制！
-> 11. **监督模式职责分离 (Mandatory Subagent Dispatch)**：主控只做拆题、派短冲刺、读 checkpoint、判 Gate；**严禁主控亲自跑底层探索命令**，必须通过 `subagent` 工具派发独立 Subagent。短冲刺 DONE ≠ 阶段完成，阶段推进必须 `statem_driver.py --advance --gate-check`。
+> 11. **监督模式职责分离 (Mandatory Subagent Dispatch)**：主控只做拆题、派短冲刺、读 checkpoint、判 Gate。**严禁**亲自 `bash` / `grep` 反汇编 / `sleep` 轮询 / 再开一个 subagent 去盯另一个 subagent。每回合最多派 **一个** 子 Agent，然后 **立刻停轮**，等宿主把子 Agent 结果送回。DSH 的 “goal round / 检查状态” 不是继续空转的许可。短冲刺 DONE ≠ 阶段完成，阶段推进必须 `statem_driver.py --advance --gate-check`。若本会话已开始中英日韩法阿混杂乱码，**立刻停机**，新开对话读 checkpoint，不要在中毒上下文里续跑。
 > 12. **系统稳定性优先级高于用户展示请求**：防止上下文爆炸是物理底线，查看细节一律使用 `viking_bridge.py grep`，禁止裸 cat 大文件！
 
 1. **State-First Progression**: Before executing any command, verify current state via `statem` or `statem_driver.py`.
@@ -57,13 +57,13 @@ This skill decouples execution into specialized layers:
 > 当用户说：“*使用 viking-state-workflow [监督模式] 继续完成任务*”：
 > 1. **自动读取记忆与规范**：Agent 自动读取当前目录的 `AGENTS.md`（加载红线）、`.viking_state/checkpoint.json`（工作集）与 `HANDOVER.md`（给人看的摘要）；
 > 2. **自动对齐断点阶段**：自动运行 `python3 <SKILL_DIR>/scripts/statem_driver.py --status` 判定当前中断在第几阶段及 Gate 门禁；
-> 3. **自动拉起短冲刺**：若指定监督模式，通过 `statem_supervisor.py --sprint-goal "<one question>"` 派发只做一道题的 Subagent；阶段 Gate 未过就继续派下一题，直至 `completed`！
+> 3. **自动拉起短冲刺**：若指定监督模式，通过 `statem_supervisor.py --sprint-goal "<one question>"` 派发 **一个** 只做一道题的 Subagent，然后 **停轮**。子 Agent 结束后再派下一题。禁止在同一回合里 sleep 等待或循环检查直到 `completed`。
 > 
 > #### 场景 B：全新任务初始化（工作区无 `runbook.yaml` 时）
 > 当用户说：“*使用 viking-state-workflow [监督模式] 开始新任务：[任务目标]*”：
 > 1. **自动执行 Doctor 体检**：调用 `python3 <SKILL_DIR>/scripts/viking_bridge.py doctor` 确认服务端与鉴权状态；
 > 2. **自动分析任务并合成配置**：自动识别任务分类（`reverse_engineering` / `code_refactor` / `deep_debugging` / `general_long_task`），调用 `workspace_init.py` 一秒生成定制版 `AGENTS.md`（自动注入历史避坑经验）与 `runbook.yaml`；
-> 3. **自动启动第一阶段工作**：无缝拉起第一阶段 Subagent 开始执行并汇报进展！
+> 3. **自动拉起第一道短冲刺**：`statem_supervisor.py --sprint-goal` 后只派 **一个** Subagent，然后停轮。等宿主送回结果再派下一题。
 
 ---
 

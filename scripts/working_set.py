@@ -19,6 +19,8 @@ from datetime import datetime
 STATE_DIRNAME = ".viking_state"
 MAX_SPRINT_STEPS = 8
 DRAIN_AFTER = 6  # 6-7 refuse exploration; 8 auto-crystallize and yield
+MAX_FACT_LEN = 240
+MAX_NEXT_ACTION_LEN = 400
 
 # Resolved from project root (runbook.yaml / .viking_state), not the process CWD.
 _PROJECT_ROOT = None
@@ -161,6 +163,13 @@ def _norm_text(text: str) -> str:
     return re.sub(r"\s+", " ", (text or "").strip())
 
 
+def _clip(text: str, limit: int) -> str:
+    text = _norm_text(text)
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 1)].rstrip() + "…"
+
+
 def _has_fact(items: list, fact: str) -> bool:
     target = _norm_text(fact).lower()
     if not target:
@@ -178,7 +187,7 @@ def _has_fact(items: list, fact: str) -> bool:
 def append_discovery(kind: str, text: str, source: str = "") -> bool:
     """Append one high-value line. Returns False if skipped (empty/dup/too long)."""
     line = _norm_text(text)
-    if not line or len(line) > 240:
+    if not line or len(line) > MAX_FACT_LEN:
         return False
     ensure_state_dir()
     existing = []
@@ -216,7 +225,7 @@ def crystallize_text(text: str, source: str = "tool") -> int:
     n = 0
     for raw in text.splitlines():
         s = raw.strip()
-        if not s or len(s) > 240:
+        if not s or len(s) > MAX_FACT_LEN:
             continue
         if VALUE_PAT.search(s):
             if append_discovery("auto", s, source=source):
@@ -230,25 +239,25 @@ def merge_checkpoint(confirmed=None, rejected=None, next_action=None, artifacts=
     if phase:
         data["phase"] = phase
     for fact in confirmed or []:
-        fact = _norm_text(fact)
+        fact = _clip(str(fact), MAX_FACT_LEN)
         if fact and not _has_fact(data["confirmed"], fact):
             data["confirmed"].append({"fact": fact})
             append_discovery("confirmed", fact, source="note")
     for item in rejected or []:
         if isinstance(item, dict):
-            try_text = _norm_text(item.get("try", ""))
-            why = _norm_text(item.get("why", ""))
+            try_text = _clip(str(item.get("try", "")), MAX_FACT_LEN)
+            why = _clip(str(item.get("why", "")), MAX_FACT_LEN)
             blob = f"{try_text} :: {why}".strip(" :")
         else:
-            blob = _norm_text(str(item))
+            blob = _clip(str(item), MAX_FACT_LEN)
             try_text, why = blob, ""
         if blob and not _has_fact(data["rejected"], try_text or blob):
             data["rejected"].append({"try": try_text or blob, "why": why})
             append_discovery("rejected", blob, source="note")
     if next_action:
-        data["next_action"] = _norm_text(next_action)
+        data["next_action"] = _clip(str(next_action), MAX_NEXT_ACTION_LEN)
     for uri in artifacts or []:
-        uri = _norm_text(uri)
+        uri = _clip(str(uri), MAX_FACT_LEN)
         if uri and uri not in data["artifacts"]:
             data["artifacts"].append(uri)
     if sprint_status:
@@ -375,16 +384,31 @@ def _detect_phase() -> str:
     return ""
 
 
-def checkpoint_prompt_slice(max_confirmed: int = 12) -> str:
+def _slim_fact(item):
+    if isinstance(item, dict):
+        out = {}
+        if item.get("fact"):
+            out["fact"] = _clip(str(item.get("fact")), MAX_FACT_LEN)
+        if item.get("try"):
+            out["try"] = _clip(str(item.get("try")), MAX_FACT_LEN)
+        if item.get("why"):
+            out["why"] = _clip(str(item.get("why")), 120)
+        return out or item
+    return _clip(str(item), MAX_FACT_LEN)
+
+
+def checkpoint_prompt_slice(max_confirmed: int = 8) -> str:
     data = load_checkpoint()
     if not any([data.get("confirmed"), data.get("rejected"), data.get("next_action")]):
         return "(empty working set — no checkpoint.json facts yet)"
     slim = {
         "phase": data.get("phase"),
-        "confirmed": data.get("confirmed", [])[-max_confirmed:],
-        "rejected": data.get("rejected", [])[-8:],
-        "next_action": data.get("next_action"),
-        "artifacts": data.get("artifacts", [])[-8:],
+        "confirmed": [_slim_fact(x) for x in (data.get("confirmed") or [])[-max_confirmed:]],
+        "rejected": [_slim_fact(x) for x in (data.get("rejected") or [])[-6:]],
+        "next_action": _clip(str(data.get("next_action") or ""), MAX_NEXT_ACTION_LEN),
+        "artifacts": [
+            _clip(str(u), MAX_FACT_LEN) for u in (data.get("artifacts") or [])[-4:]
+        ],
     }
     return json.dumps(slim, ensure_ascii=False, indent=2)
 

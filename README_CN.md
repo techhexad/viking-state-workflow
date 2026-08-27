@@ -52,6 +52,10 @@ runbook 阶段（Gate 过了才能 --advance）
 
 主控只拆题、读 checkpoint、判 Gate；不要一次做完整个阶段。
 
+`statem_supervisor.py --sprint-goal` 之后只派 **一个** `subagent`，然后 **停轮**。禁止 `sleep` / `list_agents` 轮询、禁止主控 grep 200MB 反汇编、禁止再开一个子 agent 去盯另一个。本地 GPU 一次只跑一份推理，watcher 会把正在干活的冲刺拖死。checkpoint 里每条事实截断到 240 字。若本会话开始中英日韩法阿混杂乱码：**立刻停**，新开对话读 `.viking_state/checkpoint.json`。
+
+DSH 侧（不在本仓库）：`streamIdleTimeoutMs` 用分钟级而不是 30 分钟；给默认模型加 `maxTokens`（例如 2048），避免一次生成把 32k 垃圾写进历史。
+
 ---
 
 ## 破解剧本

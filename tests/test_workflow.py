@@ -110,6 +110,16 @@ class TestGateCheck(IsolatedWorkspace):
 
 
 class TestWorkingSet(IsolatedWorkspace):
+    def test_long_facts_are_clipped(self):
+        blob = "x" * 2000
+        working_set.merge_checkpoint(confirmed=[blob], next_action="n" * 800)
+        data = working_set.load_checkpoint()
+        self.assertLessEqual(len(data["confirmed"][0]["fact"]), working_set.MAX_FACT_LEN)
+        self.assertTrue(data["confirmed"][0]["fact"].endswith("…"))
+        self.assertLessEqual(len(data["next_action"]), working_set.MAX_NEXT_ACTION_LEN)
+        slice_txt = working_set.checkpoint_prompt_slice()
+        self.assertNotIn("x" * 500, slice_txt)
+
     def test_checkpoint_dedup_and_paths_use_project_root(self):
         working_set.merge_checkpoint(confirmed=["addr 0x1000"])
         working_set.merge_checkpoint(confirmed=["addr 0x1000"])
@@ -213,6 +223,15 @@ class TestSupervisor(unittest.TestCase):
             statem_supervisor._sprint_status_from_output("SPRINT_STATUS: DONE\n", 0),
             "DONE",
         )
+
+
+class TestParentHalt(IsolatedWorkspace):
+    def test_supervisor_prints_parent_halt(self):
+        _, out = self._stdout(
+            statem_supervisor.supervise_phase, self.runbook, sprint_goal="unpack only"
+        )
+        self.assertIn("PARENT HALT", out)
+        self.assertIn("Do NOT: bash / sleep / list_agents", out)
 
 
 if __name__ == "__main__":

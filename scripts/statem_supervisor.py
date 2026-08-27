@@ -175,6 +175,13 @@ def supervise_phase(runbook_path: str, max_retries: int = 3, auto_execute_cmd: s
             print("-" * 50)
             print("ℹ️  Sprint DONE ≠ phase complete. Advance the phase only via:")
             print(f"    python3 {SCRIPT_DIR}/statem_driver.py --advance --gate-check")
+            print()
+            print("=" * 65)
+            print("PARENT HALT — this turn is over after you dispatch `subagent`.")
+            print("Do NOT: bash / sleep / list_agents / grep disasm / spawn a watcher child.")
+            print("Wait for the host to deliver the child result as the next user message.")
+            print("A 'goal round' while the child is running is not a reason to poll.")
+            print("=" * 65)
             return 0
 
         sprint_status = _sprint_status_from_output(output, returncode)
