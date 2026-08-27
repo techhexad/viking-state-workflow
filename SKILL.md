@@ -76,3 +76,16 @@ Child last command is `viking_bridge.py sprint-done`. Closing text must be those
 | Slim facts | `viking_bridge.py checkpoint` (add `--full` only if debugging) |
 
 Do not run `run` / `grep` / `ocr` / `ask-ui` as the parent. Those belong in the child.
+
+## Child command index (Zero-Discovery Cheatsheet)
+
+| Action | Exact Command Syntax |
+| :--- | :--- |
+| **Grep / Search** | `python3 $S/viking_bridge.py grep --uri "viking://knowledge/<project>/disasm/cstrings.txt" --pattern "<regex>" --context 10` |
+| **Heavy Command** | `python3 $S/viking_bridge.py run --dest "viking://knowledge/<project>/disasm/out.log" --cmd "<cmd>"` |
+| **Note Intermediate Fact** | `python3 $S/viking_bridge.py note --confirmed "<fact>" --rejected "<dead-end>" --next "<next>"` |
+| **Complete Sprint (Mandatory)**| `python3 $S/viking_bridge.py sprint-done --status DONE --confirmed "<fact>" --next "<next>"` |
+| **UI Inspection (Human y/n)** | `python3 $S/viking_bridge.py ask-ui --app "work/App.app"` |
+
+Child agents must NEVER read `README.md` or `--help`. Start directly with tool execution.
+
