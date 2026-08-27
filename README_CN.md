@@ -264,7 +264,7 @@ viking-state-workflow/
 └── templates/
 ```
 
-兼容 DSH、Hermes、OpenCode、Claude Code、Antigravity、Aider 等；规则在 `SKILL.md`，用 skills-manager 同步到各 Agent。
+兼容 DSH、Hermes、OpenCode、Claude Code、Antigravity、Aider 等。主控调度写在短的 `SKILL.md`（给本地 27B）；项目红线在生成的 `AGENTS.md`，子 Agent 规则在 `.viking_state/sprint_prompt.txt`。用 skills-manager 同步。
 
 ---
 

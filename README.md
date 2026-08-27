@@ -264,7 +264,7 @@ viking-state-workflow/
 └── templates/
 ```
 
-Works with DSH, Hermes, OpenCode, Claude Code, Antigravity, Aider, and similar hosts. Canonical rules live in `SKILL.md`; sync with skills-manager.
+Works with DSH, Hermes, OpenCode, Claude Code, Antigravity, Aider, and similar hosts. Parent dispatch lives in `SKILL.md` (kept short for local 27B). Project redlines are in generated `AGENTS.md`; child rules in `.viking_state/sprint_prompt.txt`. Sync with skills-manager.
 
 ---
 

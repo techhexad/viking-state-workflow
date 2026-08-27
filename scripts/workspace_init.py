@@ -213,7 +213,7 @@ def generate_agents_md(project_name: str, task_type: str, user_prompt: str, targ
 ---
 
 ## 1. 核心约束与操作红线 (Core Redlines)
-遵循 [`SKILL.md`](file://{SKILL_MD_PATH}) 中的**不可覆写最高安全红线**：
+以下红线不可覆写。子 Agent 还会在 `.viking_state/sprint_prompt.txt` 收到同一套约束；主控只调度，不亲自探索：
 1. **严禁裸跑 Raw Output**：执行大日志、长反编译、构建追踪或深层调试时，一律强制经过 `viking_bridge.py run` 拦截转存至 `viking://`；
 2. **启动前必检**：每次任务启动或开辟新会话，第一步必须执行 `python3 {skill_dir}/viking_bridge.py doctor`；
 3. **彻底强杀旧进程 (Mandatory Force-Kill)**：在构建、补丁、重签或启动测试前，**严禁使用普通 `pkill`**（macOS 守护进程会忽略 SIGTERM）。必须强制执行 `pkill -9 -f "<app_name>" 2>/dev/null || killall -9 "<app_name>" 2>/dev/null || true`，确保内存完全干净！
