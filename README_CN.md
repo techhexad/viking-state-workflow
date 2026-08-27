@@ -151,7 +151,7 @@ python3 scripts/statem_driver.py --advance --gate-check
 # 紧急跳过：python3 scripts/statem_driver.py --advance --force
 ```
 
-`statem_supervisor.py` 合成 prompt 时会 `sprint-reset`，并把 checkpoint 切片注入子 Agent。子进程 exit 0 **不会**自动推进阶段。
+`statem_supervisor.py` 会 `sprint-reset`，把完整 prompt 写到 `.viking_state/sprint_prompt.txt`，stdout 只打 `DISPATCH_PROMPT` 一行。主控把这一行交给 `subagent`，不要 cat prompt 文件。子进程 exit 0 **不会**自动推进阶段。
 
 ---
 
@@ -163,7 +163,7 @@ Bridge 硬限制：一道题在上下文胀起来之前停，并且**停之前�
 
 | 计入（上限 8） | 不计入 |
 |---|---|
-| `run` / `grep` / `ocr` | `note` / `checkpoint` / `doctor` / `ping` / `sprint-reset` / `sprint-status` / `ask-ui` |
+| `run` / `grep` / `ocr` | `note` / `checkpoint` / `doctor` / `ping` / `sprint-reset` / `sprint-status` / `ask-ui` / `sprint-done` |
 | | 裸 `bash`、`hdiutil`、`lipo`、`read_file` |
 | | 主控的 `statem_driver` / `statem_supervisor` |
 
@@ -187,7 +187,7 @@ python3 scripts/viking_bridge.py sprint-status    # 0/8 … 8/8
 
 主控见到 18 / 20 或 `SPRINT_STATUS: YIELD`：**不要** `--advance`。读 `next_action`，再派下一题。
 
-子 Agent 收尾固定四行然后断连：
+子 Agent 最后一条命令必须是 `viking_bridge.py sprint-done`，它会打印下面四行；closing message 只能是这四行（宿主会把 closing 全文拼进主控）：
 
 ```
 SPRINT_STATUS: DONE|YIELD|FAIL

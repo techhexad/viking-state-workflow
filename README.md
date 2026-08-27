@@ -149,7 +149,7 @@ python3 scripts/statem_driver.py --advance --gate-check
 # Emergency only: python3 scripts/statem_driver.py --advance --force
 ```
 
-`statem_supervisor.py` resets the sprint budget and injects a checkpoint slice into the child prompt. A child exit 0 does **not** advance the runbook.
+`statem_supervisor.py` resets the sprint budget, writes `.viking_state/sprint_prompt.txt`, and prints a short `DISPATCH_PROMPT`. The parent must pass **only** that one-liner to `subagent` — not the prompt file. A child exit 0 does **not** advance the runbook.
 
 ---
 
@@ -161,7 +161,7 @@ A bridge-level hard limit: stop one question before context bloats, and persist 
 
 | Counts (cap 8) | Does not count |
 |---|---|
-| `run` / `grep` / `ocr` | `note` / `checkpoint` / `doctor` / `ping` / `sprint-reset` / `sprint-status` / `ask-ui` |
+| `run` / `grep` / `ocr` | `note` / `checkpoint` / `doctor` / `ping` / `sprint-reset` / `sprint-status` / `ask-ui` / `sprint-done` |
 | | Raw `bash`, `hdiutil`, `lipo`, `read_file` |
 | | Parent `statem_driver` / `statem_supervisor` |
 
@@ -185,7 +185,7 @@ python3 scripts/viking_bridge.py sprint-status    # 0/8 … 8/8
 
 On exit 18 / 20 or `SPRINT_STATUS: YIELD` the parent **must not** `--advance`. Read `next_action` and dispatch the next question.
 
-Child closing lines:
+Child last command is `viking_bridge.py sprint-done --status DONE|YIELD|FAIL ...`. It prints:
 
 ```
 SPRINT_STATUS: DONE|YIELD|FAIL
@@ -193,6 +193,8 @@ CONFIRMED: ...
 REJECTED: ...
 NEXT: ...
 ```
+
+That is the only allowed closing message (the host splices it into the parent).
 
 ### How to prove the timeout is firing
 

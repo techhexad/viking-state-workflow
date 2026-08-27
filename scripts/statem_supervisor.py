@@ -93,16 +93,15 @@ You answer ONE question, persist the working set, then stop. You do not finish t
 
 ## Rules:
 1. One question only. No unrelated exploration.
-2. Exploration budget: at most 8 `viking_bridge.py` explore calls (`run`/`grep`/`ocr`). `note`/`checkpoint`/`doctor`/`ask-ui` do not count. Calls 6–7 are refused (drain). Call 8 auto-writes checkpoint.json and exits 20.
+2. Exploration budget: at most 8 `viking_bridge.py` explore calls (`run`/`grep`/`ocr`). `note`/`checkpoint`/`doctor`/`ask-ui`/`sprint-done` do not count. Calls 6–7 are refused (drain). Call 8 auto-writes checkpoint.json and exits 20.
    UI verify is `ask-ui` once (human y/n). Do not call capture-ocr in a retry loop.
 3. Persist every confirmed address/dead-end immediately:
    `python3 {SCRIPT_DIR}/viking_bridge.py note --confirmed "<fact>" --rejected "<dead-end>" --next "<next question>"`
-4. Heavy output must go through `python3 {SCRIPT_DIR}/viking_bridge.py run --dest "viking://knowledge/{project}/..." --cmd "..."`.
-5. End with ≤5 lines, then disconnect (no ping-pong):
-SPRINT_STATUS: DONE|YIELD|FAIL
-CONFIRMED: ...
-REJECTED: ...
-NEXT: ...
+4. Heavy output only via `python3 {SCRIPT_DIR}/viking_bridge.py run --dest "viking://knowledge/{project}/..." --cmd "..."`.
+   Search only via `viking_bridge.py grep`. Never grep/cat/head `work/disasm`, `~/.openviking/local_vfs`, or `.viking_vfs`.
+5. Last command MUST be:
+   `python3 {SCRIPT_DIR}/viking_bridge.py sprint-done --status DONE|YIELD|FAIL --confirmed "<fact>" --next "<next>"`
+   Then stop. Closing message = the 4 lines sprint-done printed. The host splices your last message into the parent — a long closing poisons the supervisor.
 6. Native-first: on Universal binaries, this sprint stays on `uname -m` only.
 """
 
@@ -169,9 +168,23 @@ def supervise_phase(runbook_path: str, max_retries: int = 3, auto_execute_cmd: s
             output = proc.stdout + "\n" + proc.stderr
             returncode = proc.returncode
         else:
-            print("📝 Synthesized Subagent Directives (inject this into a NEW subagent, then stop):")
+            prompt_path = working_set.sprint_prompt_file()
+            working_set.ensure_state_dir()
+            with open(prompt_path, "w", encoding="utf-8") as f:
+                f.write(subagent_prompt)
+            question = sprint_goal or working_set.load_checkpoint().get("next_action") or curr_state
+            dispatch = (
+                f"Read {prompt_path} and do only that sprint. "
+                f"Finish with: python3 {SCRIPT_DIR}/viking_bridge.py sprint-done "
+                f"--status DONE|YIELD|FAIL --confirmed \"<fact>\" --next \"<next>\". "
+                f"Do not paste the prompt file or a long closing message."
+            )
+            print("📝 Sprint card (do not cat PROMPT_FILE in this parent turn):")
             print("-" * 50)
-            print(subagent_prompt)
+            print(f"PROMPT_FILE: {prompt_path}")
+            print(f"SPRINT_GOAL: {question}")
+            print(f"PHASE: {curr_state}")
+            print(f"DISPATCH_PROMPT: {dispatch}")
             print("-" * 50)
             print("ℹ️  Sprint DONE ≠ phase complete. Advance the phase only via:")
             print(f"    python3 {SCRIPT_DIR}/statem_driver.py --advance --gate-check")

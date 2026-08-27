@@ -32,8 +32,8 @@ This skill decouples execution into specialized layers:
 > 3. **彻底强杀旧进程 (Mandatory Force-Kill)**：在构建、补丁、重签或启动测试前，**严禁使用普通 `pkill`**。必须强制执行 `pkill -9 -f "<app_name>" 2>/dev/null || killall -9 "<app_name>" 2>/dev/null || true`，确保内存完全干净！
 > 4. **严禁原始十六进制 Dump 毒化上下文 (Anti-Hex-Dump Shield)**：严禁在终端大段打印 `memory read` / `xxd` / `hexdump` 原始十六进制数据（大量零字节会导致大模型注意力崩溃输出 `0,0,0,0...` 退化）。所有内存 Dump 必须使用 Python 脚本解析出关键结构，或通过管道转存至 `viking://`！
 > 5. **调试重签必须注入 get-task-allow (AMFI & LLDB Bypass)**：重签 App 用于 LLDB 测试时，严禁使用裸 `codesign -s -`（会导致 AMFI 拦截报 error 9）。必须注入 `/tmp/debug_entitlements.plist`（包含 `get-task-allow` + `disable-library-validation`）！
-> 6. **短冲刺子 Agent（Micro-Sprint）**：每个子 Agent 只做一道小题（`.viking_state/checkpoint.json` 的 `next_action`），禁止一次做完整个 runbook 阶段。探索类工具（`run`/`grep`/`ocr`）单次冲刺上限 8 次；第 6–7 次起 bridge 拒绝探索、只准 `note`/`checkpoint`；第 8 次自动结晶 checkpoint 并以退出码 20 让权。`note`/`checkpoint`/`doctor`/`sprint-reset`/`ask-ui` 不计入预算。
-> 7. **工作集接力（Working Set）**：机器接力信源是 `.viking_state/checkpoint.json` 与 `discoveries.jsonl`（只追加合并，禁止覆盖已确认事实）。`HANDOVER.md` 只是给人看的渲染。子 Agent 结束时只输出 ≤5 行：`SPRINT_STATUS: DONE|YIELD|FAIL` / `CONFIRMED:` / `REJECTED:` / `NEXT:`，然后立即断连。严禁把反汇编全文或聊天记录交给下一任。
+> 6. **短冲刺子 Agent（Micro-Sprint）**：每个子 Agent 只做一道小题（`.viking_state/checkpoint.json` 的 `next_action`），禁止一次做完整个 runbook 阶段。探索类工具（`run`/`grep`/`ocr`）单次冲刺上限 8 次；第 6–7 次起 bridge 拒绝探索、只准 `note`/`checkpoint`/`sprint-done`；第 8 次自动结晶 checkpoint 并以退出码 20 让权。`note`/`checkpoint`/`doctor`/`sprint-reset`/`ask-ui`/`sprint-done` 不计入预算。
+> 7. **工作集接力（Working Set）**：机器接力信源是 `.viking_state/checkpoint.json` 与 `discoveries.jsonl`（只追加合并，禁止覆盖已确认事实）。`HANDOVER.md` 只是给人看的渲染。子 Agent 最后一条命令必须是 `viking_bridge.py sprint-done`；closing message 只能是它打印的 4 行。宿主会把 closing 全文拼进主控，长收工会把监督会话打爆。严禁 `grep`/`cat`/`head` `work/disasm`、`~/.openviking/local_vfs` 或 `.viking_vfs`。
 > 8. **UI 验收必须人工（ask-ui）**：禁止自动 `open` + `Cmd+,` + 截全屏/OCR 重试。授权页每个 App 不同，自动导航打不开目标页面。阶段 5 调用一次 `viking_bridge.py ask-ui`，让人自己点进 License/Pro 页并回答 y/n。`ASK_UI: NEED_HUMAN`（exit 4）交给主控问人，禁止循环重试。可选：人截好图后再 `ocr <png>`。
 > 9. **多工作区进程物理隔离 (Multi-Workspace Process Shield)**：启动目标 App 前，必须清理其他工作区的同名常驻进程，严禁触发 macOS LaunchServices URL 跨工程静默路由劫持！
 > 10. **本机架构优先渐进策略 (Native-First Architecture Strategy)**：面对 Universal 胖二进制时，**第一轮必须 100% 聚焦于本机原生架构（`uname -m`，如 Apple Silicon 下只跑 arm64）**！严禁在单会话中同时反编译两个架构。待本机架构验证翻绿交付后，再向用户询问或执行命令快速镜像同步到另一架构（x86_64）并合成 Universal 胖二进制！
@@ -79,7 +79,8 @@ All task-specific state should be structured as follows:
 ├── .viking_state/
 │   ├── checkpoint.json       # Machine relay (confirmed / rejected / next_action)
 │   ├── discoveries.jsonl     # Append-only high-value tool hits
-│   └── sprint_budget         # Per-sprint exploration counter (reset on each dispatch)
+│   ├── sprint_budget         # Per-sprint exploration counter (reset on each dispatch)
+│   └── sprint_prompt.txt     # Child prompt (parent dispatches DISPATCH_PROMPT only)
 └── scripts/                  # Skill utilities
 ```
 
@@ -132,7 +133,7 @@ python3 "<SKILL_DIR>/scripts/viking_bridge.py" run \
   --dest "viking://knowledge/<project>/disasm/main.asm" \
   --cmd "objdump -d <binary_path>"
 ```
-*The wrapper returns a concise summary (L0) and line ranges rather than the raw output.*
+*The wrapper streams stdout to the dest file and prints a 20-line preview. It does not hold the full dump in RAM or in the conversation. `grep` streams the local file (capped matches). `get` is preview-only — never dumps a node.*
 
 ### Step 4: Targeted Query & Domain Heuristics (String XREF-First Protocol)
 
@@ -187,7 +188,7 @@ python3 "<SKILL_DIR>/scripts/statem_supervisor.py" \
   --sprint-goal "<one question, e.g. find cstring address of Pro License>" \
   --max-retries 3
 ```
-The supervisor resets the sprint budget, injects `checkpoint.json`, and prints a prompt for a new child. **Sprint DONE does not advance the runbook.** Advance only after a real gate check:
+The supervisor writes `.viking_state/sprint_prompt.txt` and prints a short card (`PROMPT_FILE` / `DISPATCH_PROMPT`). Parent injects **only** `DISPATCH_PROMPT` into `subagent` — do not cat the prompt file in the parent turn. **Sprint DONE does not advance the runbook.** Advance only after a real gate check:
 ```bash
 python3 "<SKILL_DIR>/scripts/statem_driver.py" --advance --gate-check
 ```
@@ -219,13 +220,16 @@ The next sprint loads `.viking_state/checkpoint.json` plus the runbook state.
 | `viking_bridge.py run --dest <uri> --cmd "<cmd>"` | Run command & redirect heavy output to VFS |
 | `viking_bridge.py ask-ui [--app] [--open]` | Human y/n UI gate (no auto screenshot) |
 | `viking_bridge.py ocr <image> [--dest <uri>]` | OCR a screenshot the human already took |
-| `viking_bridge.py put <file> <uri>` | Push file into OpenViking VFS |
-| `viking_bridge.py grep --uri <uri> --pattern <str>` | Extract specific lines & context from VFS node (crystallizes hits) |
+| `viking_bridge.py put <file> <uri>` | Copy file into local VFS (HTTP only if small) |
+| `viking_bridge.py get <uri>` | Size + short preview; refuses to dump large nodes |
+| `viking_bridge.py grep --uri <uri> --pattern <str>` | Stream-search a VFS node (≤20 snippets, crystallizes hits) |
 | `viking_bridge.py note --confirmed/--rejected/--next` | Merge facts into checkpoint.json (does not count against sprint budget) |
-| `viking_bridge.py checkpoint` | Print the current working set |
+| `viking_bridge.py checkpoint` | Print the slim working-set slice (`--full` for raw JSON) |
+| `viking_bridge.py sprint-done --status DONE\|YIELD\|FAIL` | Persist + print the 4-line child handover (does not count) |
 | `viking_bridge.py sprint-reset` | Reset micro-sprint exploration counter |
+| `viking_bridge.py sprint-status` | Show micro-sprint exploration budget |
 | `statem_driver.py --status` | Display current state machine phase & gates |
 | `statem_driver.py --advance --gate-check` | Advance only if the phase gate is evidenced (`--force` skips) |
-| `statem_supervisor.py --sprint-goal "<q>"` | Synthesize a one-question subagent prompt + reset sprint budget |
+| `statem_supervisor.py --sprint-goal "<q>"` | Write sprint_prompt.txt, print DISPATCH_PROMPT, reset sprint budget |
 | `session_compactor.py --from-checkpoint` | Render HANDOVER.md from checkpoint.json |
 

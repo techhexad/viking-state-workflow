@@ -85,6 +85,10 @@ def budget_file() -> str:
     return os.path.join(state_dir(), "sprint_budget")
 
 
+def sprint_prompt_file() -> str:
+    return os.path.join(state_dir(), "sprint_prompt.txt")
+
+
 def handover_file() -> str:
     return os.path.join(project_root(), "HANDOVER.md")
 

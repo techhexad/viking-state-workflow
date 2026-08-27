@@ -154,6 +154,17 @@ class TestWorkingSet(IsolatedWorkspace):
 
 
 class TestBridge(IsolatedWorkspace):
+    def setUp(self):
+        super().setUp()
+        self._vfs = os.path.join(self.tmp, "ov_backup")
+        os.makedirs(self._vfs, exist_ok=True)
+        self._vfs_patch = mock.patch.object(viking_bridge, "LOCAL_VFS_BACKUP", self._vfs)
+        self._vfs_patch.start()
+
+    def tearDown(self):
+        self._vfs_patch.stop()
+        super().tearDown()
+
     def test_vfs_relpath_rejects_traversal(self):
         with self.assertRaises(ValueError):
             viking_bridge.vfs_relpath("viking://../../etc/passwd")
@@ -211,6 +222,64 @@ class TestBridge(IsolatedWorkspace):
         self.assertEqual(code, 124)
         self.assertIn("timed out", out)
 
+    def test_grep_streams_without_get_vfs(self):
+        rel = os.path.join(self.tmp, ".viking_vfs", "knowledge", "big.txt")
+        os.makedirs(os.path.dirname(rel), exist_ok=True)
+        with open(rel, "w", encoding="utf-8") as f:
+            f.write("noise\n" * 5000)
+            f.write("needle Unlicensed here\n")
+            f.write("noise\n" * 5000)
+        uri = "viking://knowledge/big.txt"
+        working_set.reset_sprint_budget()
+        with mock.patch.object(viking_bridge, "get_vfs", side_effect=AssertionError("must not slurp")):
+            code, out = self._stdout(viking_bridge.grep_vfs, uri, "Unlicensed")
+        self.assertEqual(code, 0)
+        self.assertIn("Unlicensed", out)
+        self.assertLess(out.count("noise"), 20)
+
+    def test_run_offload_does_not_inline_body(self):
+        working_set.reset_sprint_budget()
+        code, out = self._stdout(
+            viking_bridge.run_command,
+            "python3 -c \"[print(i) for i in range(80)]\"",
+            "viking://knowledge/many.txt",
+            max_lines=40,
+        )
+        self.assertEqual(code, 0)
+        self.assertIn("VIKING INTERCEPTOR", out)
+        self.assertNotIn("\n  50\n", "\n" + out)
+        dest = viking_bridge.resolve_local_node("viking://knowledge/many.txt")
+        self.assertTrue(dest and os.path.isfile(dest))
+        with open(dest, encoding="utf-8") as f:
+            self.assertGreaterEqual(sum(1 for _ in f), 80)
+
+    def test_get_previews_large_node(self):
+        path = os.path.join(self._vfs, "knowledge", "huge.txt")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            for i in range(100):
+                f.write(f"line-{i}\n")
+        code, out = self._stdout(viking_bridge.print_vfs_preview, "viking://knowledge/huge.txt")
+        self.assertEqual(code, 0)
+        self.assertIn("too large to dump", out)
+        self.assertIn("line-0", out)
+        self.assertNotIn("line-50", out)
+
+    def test_sprint_done_prints_four_lines(self):
+        code, out = self._stdout(
+            viking_bridge.sprint_done,
+            "DONE",
+            confirmed=["gate at 0x1000"],
+            next_action="xref next",
+        )
+        self.assertEqual(code, 0)
+        lines = [ln for ln in out.splitlines() if ln.startswith(
+            ("SPRINT_STATUS:", "CONFIRMED:", "REJECTED:", "NEXT:")
+        )]
+        self.assertEqual(len(lines), 4)
+        self.assertTrue(out.strip().endswith("NEXT: xref next"))
+        self.assertIn("gate at 0x1000", working_set.load_checkpoint()["confirmed"][0]["fact"])
+
 
 class TestSupervisor(unittest.TestCase):
     def test_permission_denied_is_recoverable(self):
@@ -232,6 +301,16 @@ class TestParentHalt(IsolatedWorkspace):
         )
         self.assertIn("PARENT HALT", out)
         self.assertIn("Do NOT: bash / sleep / list_agents", out)
+        self.assertIn("PROMPT_FILE:", out)
+        self.assertIn("DISPATCH_PROMPT:", out)
+        self.assertNotIn("Working set (do not re-derive", out)
+        prompt_path = working_set.sprint_prompt_file()
+        self.assertTrue(os.path.isfile(prompt_path))
+        with open(prompt_path, encoding="utf-8") as f:
+            body = f.read()
+        self.assertIn("Working set (do not re-derive", body)
+        self.assertIn("unpack only", body)
+        self.assertIn("sprint-done", body)
 
 
 if __name__ == "__main__":

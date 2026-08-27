@@ -17,13 +17,19 @@ import argparse
 import subprocess
 import json
 import glob
+import shutil
 import urllib.request
 import urllib.error
 import re
+from collections import deque
 
 import working_set
 
 MAX_INLINE_LINES = int(os.environ.get("VIKING_MAX_INLINE_LINES", "40"))
+MAX_HTTP_PUT_BYTES = int(os.environ.get("VIKING_MAX_HTTP_PUT_BYTES", "1000000"))
+MAX_GREP_CONTEXT = 30
+MAX_GREP_MATCHES = 20
+MAX_GET_PRINT_LINES = 40
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 LOCAL_VFS_BACKUP = os.path.expanduser("~/.openviking/local_vfs")
 DEFAULT_TIMEOUT_SEC = int(os.environ.get("VIKING_USER_TIMEOUT", "600"))  # 10 minutes default
@@ -130,6 +136,70 @@ def _write_local_backup(uri: str, content: str):
         return ws_backup
 
 
+def local_node_candidates(uri: str):
+    rel = vfs_relpath(uri)
+    return [
+        os.path.join(LOCAL_VFS_BACKUP, rel),
+        os.path.join(working_set.project_root(), ".viking_vfs", rel),
+    ]
+
+
+def resolve_local_node(uri: str):
+    for path in local_node_candidates(uri):
+        if os.path.isfile(path):
+            return path
+    return None
+
+
+def _prepare_dest_path(uri: str) -> str:
+    rel = vfs_relpath(uri)
+    primary = os.path.join(LOCAL_VFS_BACKUP, rel)
+    try:
+        os.makedirs(os.path.dirname(primary), exist_ok=True)
+        return primary
+    except (PermissionError, OSError):
+        ws = os.path.join(working_set.project_root(), ".viking_vfs", rel)
+        os.makedirs(os.path.dirname(ws), exist_ok=True)
+        return ws
+
+
+def _preview_file(path: str, head: int = 10, tail: int = 10):
+    """Line count + head/tail without loading the whole file as one string."""
+    if not path or not os.path.isfile(path):
+        return 0, [], []
+    head_lines = []
+    tail_buf = deque(maxlen=max(0, tail))
+    n = 0
+    with open(path, "r", encoding="utf-8", errors="replace") as f:
+        for line in f:
+            n += 1
+            if len(head_lines) < head:
+                head_lines.append(line.rstrip("\n"))
+            if tail:
+                tail_buf.append(line.rstrip("\n"))
+    last = list(tail_buf)
+    if n <= head:
+        last = []
+    elif tail and n <= head + tail:
+        last = last[-(n - head):]
+    return n, head_lines, last
+
+
+def put_file_vfs(uri: str, file_path: str, tags=None):
+    """Copy a file into local VFS. HTTP upload only if the file is small."""
+    dest = _prepare_dest_path(uri)
+    src = os.path.abspath(file_path)
+    if os.path.abspath(dest) != src:
+        shutil.copyfile(src, dest)
+    size = os.path.getsize(dest)
+    if size <= MAX_HTTP_PUT_BYTES:
+        with open(dest, "r", encoding="utf-8", errors="replace") as f:
+            return put_vfs(uri, f.read(), tags=tags)
+    print(f"[VFS] Stored locally at {dest} ({size} bytes). "
+          f"Skipped HTTP put (>{MAX_HTTP_PUT_BYTES}).")
+    return dest
+
+
 def doctor():
     """Mandatory Pre-flight check: verifies all connections, auth, and models before running task."""
     print("=" * 65)
@@ -205,14 +275,72 @@ def get_vfs(uri: str):
     return f"[ERROR] Node {uri} not found."
 
 
-def grep_vfs(uri: str, pattern: str, context_lines=5, ignore_case=True, max_matches=5):
-    """Search a VFS node. Returns 0 on hits, 1 on miss/missing, 2 on bad regex."""
-    enforce_explore_budget()
+def _materialize_node(uri: str):
+    """Return a local path for uri. Prefer disk; only then fetch (and persist) via HTTP."""
+    path = resolve_local_node(uri)
+    if path:
+        return path, None
     content = get_vfs(uri)
     if not content or content.startswith("[ERROR]"):
-        print(content or f"[ERROR] Empty content in {uri}")
+        return None, (content or f"[ERROR] Empty content in {uri}")
+    return _write_local_backup(uri, content), None
+
+
+def _grep_stream(path: str, uri: str, regex, context_lines: int, max_matches: int):
+    match_lines = []
+    total = 0
+    with open(path, "r", encoding="utf-8", errors="replace") as f:
+        for i, line in enumerate(f, 1):
+            if regex.search(line.rstrip("\n")):
+                total += 1
+                if len(match_lines) < max_matches:
+                    match_lines.append(i)
+    if total == 0:
+        print(f"[GREP] No matches found for pattern in {uri}.")
         return 1
 
+    windows = []
+    needed = set()
+    for ln in match_lines:
+        start = max(1, ln - context_lines)
+        end = ln + context_lines
+        windows.append((ln, start, end))
+        needed.update(range(start, end + 1))
+    collected = {}
+    stop_after = max(w[2] for w in windows)
+    with open(path, "r", encoding="utf-8", errors="replace") as f:
+        for i, line in enumerate(f, 1):
+            if i in needed:
+                collected[i] = line.rstrip("\n")
+            if i >= stop_after:
+                break
+
+    print(f"[GREP] Found {total} match(es) for '{regex.pattern}' in {uri}:\n")
+    crystallized = 0
+    for match_num, (line_no, start_line, end_line) in enumerate(windows, 1):
+        print(f"--- Match #{match_num} (around line {line_no}) ---")
+        for curr_no in range(start_line, end_line + 1):
+            if curr_no not in collected:
+                continue
+            s_line = collected[curr_no]
+            prefix = ">>" if curr_no == line_no else "  "
+            print(f"{prefix} {curr_no:6d}: {s_line}")
+            if curr_no == line_no and working_set.append_discovery("grep", s_line, source=uri):
+                crystallized += 1
+        print()
+    if total > len(windows):
+        print(f"... and {total - len(windows)} more matches truncated. "
+              f"Pass a tighter --pattern to page.")
+    if crystallized:
+        print(f"📌 Crystallized {crystallized} hit(s) into .viking_state/discoveries.jsonl")
+    return 0
+
+
+def grep_vfs(uri: str, pattern: str, context_lines=5, ignore_case=True, max_matches=5):
+    """Search a VFS node by streaming the local file. Never split() a 200MB blob."""
+    enforce_explore_budget()
+    context_lines = max(0, min(int(context_lines), MAX_GREP_CONTEXT))
+    max_matches = max(1, min(int(max_matches), MAX_GREP_MATCHES))
     flags = re.IGNORECASE if ignore_case else 0
     try:
         regex = re.compile(pattern, flags)
@@ -220,37 +348,11 @@ def grep_vfs(uri: str, pattern: str, context_lines=5, ignore_case=True, max_matc
         print(f"[ERROR] Invalid regex {pattern!r}: {e}")
         return 2
 
-    lines = content.splitlines()
-    matches = []
-    for idx, line in enumerate(lines):
-        if regex.search(line):
-            start = max(0, idx - context_lines)
-            end = min(len(lines), idx + context_lines + 1)
-            snippet = lines[start:end]
-            matches.append((idx + 1, start + 1, snippet))
-
-    if not matches:
-        print(f"[GREP] No matches found for pattern '{pattern}' in {uri}.")
+    path, err = _materialize_node(uri)
+    if err:
+        print(err)
         return 1
-
-    shown = max(1, max_matches)
-    print(f"[GREP] Found {len(matches)} match(es) for '{pattern}' in {uri}:\n")
-    crystallized = 0
-    for match_num, (line_no, start_line, snippet) in enumerate(matches[:shown], 1):
-        print(f"--- Match #{match_num} (around line {line_no}) ---")
-        for offset, s_line in enumerate(snippet):
-            curr_no = start_line + offset
-            prefix = ">>" if curr_no == line_no else "  "
-            print(f"{prefix} {curr_no:6d}: {s_line}")
-            if curr_no == line_no and working_set.append_discovery("grep", s_line, source=uri):
-                crystallized += 1
-        print()
-    if len(matches) > shown:
-        print(f"... and {len(matches) - shown} more matches truncated. "
-              f"Pass --max-matches or a tighter --pattern to page.")
-    if crystallized:
-        print(f"📌 Crystallized {crystallized} hit(s) into .viking_state/discoveries.jsonl")
-    return 0
+    return _grep_stream(path, uri, regex, context_lines, max_matches)
 
 
 def enforce_explore_budget():
@@ -269,64 +371,138 @@ def enforce_explore_budget():
 
 
 def run_command(cmd: str, dest_uri: str, max_lines=MAX_INLINE_LINES, timeout_sec=DEFAULT_RUN_TIMEOUT_SEC):
+    """Run cmd with stdout streamed to a file. Never capture_output a 200MB objdump."""
     enforce_explore_budget()
     print(f"[EXECUTING] {cmd}")
     env = os.environ.copy()
     env[BRIDGE_ACTIVE_ENV] = "1"
     try:
-        proc = subprocess.run(
-            cmd,
-            shell=True,
-            capture_output=True,
-            text=True,
-            timeout=timeout_sec,
-            env=env,
-        )
+        dest_path = _prepare_dest_path(dest_uri)
+    except ValueError as e:
+        print(f"[ERROR] {e}")
+        return 2
+
+    try:
+        with open(dest_path, "wb") as out_f:
+            proc = subprocess.run(
+                cmd,
+                shell=True,
+                stdout=out_f,
+                stderr=subprocess.PIPE,
+                timeout=timeout_sec,
+                env=env,
+            )
     except subprocess.TimeoutExpired:
         print(f"[ERROR] Command timed out after {timeout_sec}s: {cmd}")
         return 124
-    combined_output = proc.stdout
-    if proc.stderr:
-        combined_output += ("\n[STDERR]\n" + proc.stderr)
 
+    stderr = (proc.stderr or b"").decode("utf-8", errors="replace")
     failed = proc.returncode != 0
-    lines = combined_output.splitlines()
-    if len(lines) <= max_lines:
-        print(combined_output)
+    n_lines, head, tail = _preview_file(dest_path, head=10, tail=10)
+
+    if stderr.strip():
+        err_lines = stderr.splitlines()
+        print("[STDERR]")
+        for line in err_lines[:20]:
+            print(f"  {line}")
+        if len(err_lines) > 20:
+            print(f"  ... [{len(err_lines) - 20} stderr lines omitted]")
+
+    if n_lines <= max_lines:
+        _, body, _ = _preview_file(dest_path, head=max_lines, tail=0)
+        print("\n".join(body))
         if not failed:
-            working_set.crystallize_text(combined_output, source=dest_uri)
-            if dest_uri:
-                working_set.merge_checkpoint(artifacts=[dest_uri])
+            working_set.crystallize_text("\n".join(body), source=dest_uri)
+            working_set.merge_checkpoint(artifacts=[dest_uri])
         return proc.returncode
 
     try:
-        put_vfs(dest_uri, combined_output, tags=["cmd_output", "auto_intercept"])
+        if os.path.getsize(dest_path) <= MAX_HTTP_PUT_BYTES:
+            put_file_vfs(dest_uri, dest_path, tags=["cmd_output", "auto_intercept"])
+        else:
+            print(f"[VFS] Stored locally at {dest_path} "
+                  f"({os.path.getsize(dest_path)} bytes). Skipped HTTP put.")
     except ValueError as e:
         print(f"[ERROR] {e}")
         return 2
 
     print("\n" + "=" * 70)
-    print(f"🛡️  [VIKING INTERCEPTOR: Heavy Output Detected ({len(lines)} lines)]")
+    print(f"🛡️  [VIKING INTERCEPTOR: Heavy Output Detected ({n_lines} lines)]")
     print(f"📍 Stored at: {dest_uri}")
+    print(f"📄 Local file: {dest_path}")
     if failed:
         print(f"⚠️  Command exited {proc.returncode}; output stored but not recorded as a gate artifact.")
     print("=" * 70)
     print("Top 10 lines preview:")
-    for line in lines[:10]:
+    for line in head:
         print(f"  {line}")
-    print(f"\n... [{len(lines) - 20} lines offloaded to OpenViking] ...\n")
+    omitted = max(0, n_lines - 20)
+    print(f"\n... [{omitted} lines offloaded] ...\n")
     print("Bottom 10 lines preview:")
-    for line in lines[-10:]:
+    for line in tail:
         print(f"  {line}")
     print("=" * 70)
-    print(f"💡 Tip: To inspect specific symbols, run:")
-    print(f"   python viking_bridge.py grep --uri \"{dest_uri}\" --pattern \"<keyword>\"\n")
+    print("💡 Tip: python viking_bridge.py grep "
+          f"--uri \"{dest_uri}\" --pattern \"<keyword>\"\n")
     if not failed:
-        working_set.crystallize_text("\n".join(lines[:40] + lines[-40:]), source=dest_uri)
-        if dest_uri:
-            working_set.merge_checkpoint(artifacts=[dest_uri])
-
+        working_set.crystallize_text("\n".join(head + tail), source=dest_uri)
+        working_set.merge_checkpoint(artifacts=[dest_uri])
     return proc.returncode
+
+
+def print_vfs_preview(uri: str, max_lines=MAX_GET_PRINT_LINES):
+    """Print size + a short preview. Never dump a whole VFS node to stdout."""
+    path, err = _materialize_node(uri)
+    if err:
+        print(err)
+        return 1
+    size = os.path.getsize(path)
+    n_lines, head, tail = _preview_file(path, head=min(20, max_lines), tail=10)
+    print(f"[GET] {uri}")
+    print(f"      file={path} bytes={size} lines={n_lines}")
+    if n_lines <= max_lines:
+        for line in head:
+            print(line)
+        return 0
+    print(f"[GET] Node too large to dump ({n_lines} lines). Preview only. Use grep.")
+    print("--- head ---")
+    for line in head:
+        print(line)
+    print("--- tail ---")
+    for line in tail:
+        print(line)
+    return 0
+
+
+def sprint_done(status: str, confirmed=None, rejected=None, next_action=None):
+    """Persist the working set and print exactly four handover lines."""
+    status = (status or "").strip().upper()
+    if status not in ("DONE", "YIELD", "FAIL"):
+        print("[ERROR] sprint-done --status must be DONE, YIELD, or FAIL")
+        return 2
+    data = working_set.merge_checkpoint(
+        confirmed=confirmed or [],
+        rejected=rejected or [],
+        next_action=next_action,
+        sprint_status=status.lower(),
+    )
+    working_set.render_handover(data)
+    conf = data.get("confirmed") or []
+    rej = data.get("rejected") or []
+    last_c = conf[-1]["fact"] if conf and isinstance(conf[-1], dict) else ""
+    last_r = ""
+    if rej:
+        item = rej[-1]
+        last_r = item.get("try", "") if isinstance(item, dict) else str(item)
+    print(f"SPRINT_STATUS: {status}")
+    print(f"CONFIRMED: {last_c}")
+    print(f"REJECTED: {last_r}")
+    print(f"NEXT: {data.get('next_action') or ''}")
+    if status == "YIELD":
+        return 20
+    if status == "FAIL":
+        return 1
+    return 0
 
 
 def run_ocr(image_path: str, dest_uri: str = None):
@@ -554,15 +730,15 @@ def main():
     put_parser.add_argument("uri", help="Destination Viking URI")
 
     # Get
-    get_parser = subparsers.add_parser("get", help="Retrieve content from VFS")
+    get_parser = subparsers.add_parser("get", help="Preview a VFS node (never dumps the whole file)")
     get_parser.add_argument("uri", help="Target Viking URI")
 
     # Grep
     grep_parser = subparsers.add_parser("grep", help="Search pattern with context in VFS node")
     grep_parser.add_argument("--uri", required=True, help="Target Viking URI")
     grep_parser.add_argument("--pattern", required=True, help="Regex or string pattern")
-    grep_parser.add_argument("--context", type=int, default=5, help="Lines of context around match")
-    grep_parser.add_argument("--max-matches", type=int, default=5, help="Max match snippets to print")
+    grep_parser.add_argument("--context", type=int, default=5, help=f"Lines of context around match (capped at {MAX_GREP_CONTEXT})")
+    grep_parser.add_argument("--max-matches", type=int, default=5, help=f"Max match snippets to print (capped at {MAX_GREP_MATCHES})")
     grep_parser.add_argument(
         "--ignore-case",
         dest="ignore_case",
@@ -585,9 +761,18 @@ def main():
     note_parser.add_argument("--artifact", action="append", default=[], help="Viking URI or local path (repeatable)")
     note_parser.add_argument("--phase", help="Runbook phase name")
 
-    subparsers.add_parser("checkpoint", help="Print the current working-set checkpoint.json")
+    ck_parser = subparsers.add_parser("checkpoint", help="Print the slim working-set slice")
+    ck_parser.add_argument("--full", action="store_true", help="Print raw checkpoint.json (debug only)")
     subparsers.add_parser("sprint-reset", help="Reset micro-sprint exploration budget to 0")
     subparsers.add_parser("sprint-status", help="Show micro-sprint exploration budget")
+    done_parser = subparsers.add_parser(
+        "sprint-done",
+        help="Persist working set and print the 4-line child handover (does not count as explore)",
+    )
+    done_parser.add_argument("--status", required=True, help="DONE, YIELD, or FAIL")
+    done_parser.add_argument("--confirmed", action="append", default=[], help="Confirmed fact (repeatable)")
+    done_parser.add_argument("--rejected", action="append", default=[], help="Rejected path (repeatable)")
+    done_parser.add_argument("--next", dest="next_action", help="Next micro-sprint action")
 
     args = parser.parse_args()
 
@@ -616,10 +801,8 @@ def main():
         ))
     elif args.subcommand == "put":
         if os.path.exists(args.file):
-            with open(args.file, "r", encoding="utf-8", errors="replace") as f:
-                content = f.read()
             try:
-                put_vfs(args.uri, content)
+                put_file_vfs(args.uri, args.file)
             except ValueError as e:
                 print(f"[ERROR] {e}")
                 sys.exit(2)
@@ -627,7 +810,7 @@ def main():
             print(f"[ERROR] File not found: {args.file}")
             sys.exit(1)
     elif args.subcommand == "get":
-        print(get_vfs(args.uri))
+        sys.exit(print_vfs_preview(args.uri) or 0)
     elif args.subcommand == "grep":
         sys.exit(grep_vfs(
             args.uri,
@@ -652,7 +835,17 @@ def main():
             "next_action": data.get("next_action"),
         }, ensure_ascii=False, indent=2))
     elif args.subcommand == "checkpoint":
-        print(json.dumps(working_set.load_checkpoint(), ensure_ascii=False, indent=2))
+        if getattr(args, "full", False):
+            print(json.dumps(working_set.load_checkpoint(), ensure_ascii=False, indent=2))
+        else:
+            print(working_set.checkpoint_prompt_slice())
+    elif args.subcommand == "sprint-done":
+        sys.exit(sprint_done(
+            args.status,
+            confirmed=args.confirmed,
+            rejected=args.rejected,
+            next_action=args.next_action,
+        ) or 0)
     elif args.subcommand == "sprint-reset":
         working_set.reset_sprint_budget()
         print("[SPRINT] exploration budget reset to 0/8")
