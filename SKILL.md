@@ -51,12 +51,13 @@ Long redlines, XREF SOP, codesign, and UI steps live in:
 6. **Stop this turn.** Wait for the host to return the child.  
    Do not `sleep`, `list_agents`, `job_output` poll, grep disasm, or spawn a second child to watch the first. A DSH `goal_round` is not permission to keep going.
 
-7. When the child returns:
-   - `SPRINT_STATUS: DONE|YIELD` → `$S/statem_driver.py --advance --gate-check`  
-     Gate fail: dispatch the next question from `next_action`. Do not `--force`.
-   - `FAIL` / recoverable (codesign, text-busy, unlicensed UI): note the dead-end, dispatch one retry child, stop.
+7. When the child returns, do **not** write an analysis essay (maxTokens will kill the turn with no tool call):
+   - `DONE` → `$S/statem_driver.py --advance --gate-check`. Gate fail: dispatch `next_action`, stop. Do not `--force`.
+   - `YIELD` / `DRAIN` → **do not advance**. The phase is not done. Dispatch `checkpoint.next_action` as the next sprint, then stop.
+   - `FAIL` / recoverable (codesign, text-busy, unlicensed UI): note the dead-end, dispatch one retry, stop.
    - Fatal (SIP, sudo password, missing DMG, daemon down): stop and tell the human.
    - `ASK_UI: NEED_HUMAN` (exit 4): ask the user y/n in this chat. Do not retry `ask-ui` in a loop.
+   - False-positive advance (phase jumped but the work is missing): `$S/statem_driver.py --rollback`, then dispatch `next_action`.
 
 8. If this chat emits mixed-language garbage or looping tokens: **stop**. New chat, same workspace, user says to continue. Load checkpoint. Never continue inside a poisoned thread.
 
@@ -71,6 +72,7 @@ Child last command is `viking_bridge.py sprint-done`. Closing text must be those
 | Where am I | `statem_driver.py --status` |
 | Dispatch | `statem_supervisor.py --sprint-goal "..."` then one `subagent` |
 | After a real gate | `statem_driver.py --advance --gate-check` |
+| False-positive jump | `statem_driver.py --rollback` |
 | Slim facts | `viking_bridge.py checkpoint` (add `--full` only if debugging) |
 
 Do not run `run` / `grep` / `ocr` / `ask-ui` as the parent. Those belong in the child.

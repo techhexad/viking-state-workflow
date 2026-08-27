@@ -104,6 +104,36 @@ class TestGateCheck(IsolatedWorkspace):
         data = statem_driver.load_runbook(self.runbook)
         self.assertEqual(data["current_state"], "symbol_and_disasm")
 
+    def test_yield_blocks_advance(self):
+        os.makedirs(os.path.join(self.tmp, "work"))
+        with open(os.path.join(self.tmp, "work", "thin.bin"), "w") as fh:
+            fh.write("x")
+        working_set.merge_checkpoint(
+            confirmed=["thin binary at work/thin.bin"],
+            sprint_status="yield",
+        )
+        ok, failures, _ = statem_driver.evaluate_gate(self.runbook)
+        self.assertFalse(ok)
+        self.assertTrue(any("yield" in f for f in failures))
+
+    def test_craft_patch_requires_codesign_evidence(self):
+        working_set.merge_checkpoint(confirmed=["addr 0x1000 locked"])
+        data = statem_driver.load_runbook(self.runbook)
+        ok, failures, _ = statem_driver.evaluate_gate(
+            self.runbook, data, curr_state="craft_patch"
+        )
+        self.assertFalse(ok)
+        self.assertTrue(any("codesign" in f or "patched-binary" in f for f in failures))
+
+    def test_rollback_restores_previous_state(self):
+        self._stdout(statem_driver.advance_state, self.runbook, check_gate=True, force=True)
+        data = statem_driver.load_runbook(self.runbook)
+        self.assertEqual(data["current_state"], "symbol_and_disasm")
+        self._stdout(statem_driver.rollback_state, self.runbook)
+        data = statem_driver.load_runbook(self.runbook)
+        self.assertEqual(data["current_state"], "unpack_and_extract")
+        self.assertEqual(data.get("history") or [], [])
+
     def test_yaml_prompt_quotes(self):
         data = statem_driver.load_runbook(self.runbook)
         self.assertEqual(data.get("description"), 'crack "Foo" Pro')
@@ -311,6 +341,7 @@ class TestParentHalt(IsolatedWorkspace):
         self.assertIn("Working set (do not re-derive", body)
         self.assertIn("unpack only", body)
         self.assertIn("sprint-done", body)
+        self.assertIn("First tool call must be the work", out)
 
 
 if __name__ == "__main__":

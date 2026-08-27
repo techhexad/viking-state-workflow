@@ -92,21 +92,18 @@ You answer ONE question, persist the working set, then stop. You do not finish t
 {gate}
 
 ## Rules:
-1. One question only. No unrelated exploration.
-2. Exploration budget: at most 8 `viking_bridge.py` explore calls (`run`/`grep`/`ocr`). `note`/`checkpoint`/`doctor`/`ask-ui`/`sprint-done` do not count. Calls 6–7 are refused (drain). Call 8 auto-writes checkpoint.json and exits 20.
+1. One question only. First tool call MUST do that work (`grep`/`run`/`ask-ui`). Do not load the viking-state-workflow skill (parent-only). Do not `doctor`, `--help`, or read `viking_bridge.py` source.
+2. Every step must include a tool call until `sprint-done`. Never end a turn with a plan-only message — the host will treat that as finished and kill you. Keep thinking under 8 lines.
+3. Exploration budget: at most 8 `viking_bridge.py` explore calls (`run`/`grep`/`ocr`). `note`/`checkpoint`/`ask-ui`/`sprint-done` do not count. Calls 6–7 are refused (drain). Call 8 auto-writes checkpoint.json and exits 20.
    UI verify is `ask-ui` once (human y/n). Do not call capture-ocr in a retry loop.
-3. Persist every confirmed address/dead-end immediately:
+4. Persist every confirmed address/dead-end immediately:
    `python3 {SCRIPT_DIR}/viking_bridge.py note --confirmed "<fact>" --rejected "<dead-end>" --next "<next question>"`
-4. Heavy output only via `python3 {SCRIPT_DIR}/viking_bridge.py run --dest "viking://knowledge/{project}/..." --cmd "..."`.
+5. Heavy output only via `python3 {SCRIPT_DIR}/viking_bridge.py run --dest "viking://knowledge/{project}/..." --cmd "..."`.
    Search only via `viking_bridge.py grep`. Never grep/cat/head `work/disasm`, `~/.openviking/local_vfs`, or `.viking_vfs`.
-5. Last command MUST be:
+6. Last command MUST be:
    `python3 {SCRIPT_DIR}/viking_bridge.py sprint-done --status DONE|YIELD|FAIL --confirmed "<fact>" --next "<next>"`
    Then stop. Closing message = the 4 lines sprint-done printed. The host splices your last message into the parent — a long closing poisons the supervisor.
-6. Native-first: on Universal binaries, this sprint stays on `uname -m` only.
-7. Continuous tool execution: You MUST execute a tool (`bash`/`viking_bridge.py`) on EVERY turn. DO NOT output a pure text plan without calling a tool in the same turn, as that will prematurely terminate your session!
-
-### 💡 Quick Tool Invocation:
-python3 {SCRIPT_DIR}/viking_bridge.py grep --uri "viking://knowledge/{project}/disasm/main_disasm.asm" --pattern "<target_symbol_or_address>"
+7. Native-first: on Universal binaries, this sprint stays on `uname -m` only.
 """
 
     if failure_context:
@@ -178,10 +175,12 @@ def supervise_phase(runbook_path: str, max_retries: int = 3, auto_execute_cmd: s
                 f.write(subagent_prompt)
             question = sprint_goal or working_set.load_checkpoint().get("next_action") or curr_state
             dispatch = (
-                f"Read {prompt_path} and execute tools continuously until sprint-done. "
+                f"Read {prompt_path} and do only that sprint. "
+                f"First tool call must be the work (grep/run/ask-ui), not skill/help/doctor. "
+                f"Every step must include a tool call until sprint-done. "
                 f"Finish with: python3 {SCRIPT_DIR}/viking_bridge.py sprint-done "
                 f"--status DONE|YIELD|FAIL --confirmed \"<fact>\" --next \"<next>\". "
-                f"Do not output a plan without calling a tool in the same turn."
+                f"Do not paste the prompt file or a long closing message."
             )
             print("📝 Sprint card (do not cat PROMPT_FILE in this parent turn):")
             print("-" * 50)

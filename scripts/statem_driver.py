@@ -54,6 +54,21 @@ def _parse_simple_yaml(text: str) -> dict:
             current_section = k
             sub_section = None
             data[k] = v if v else {}
+        elif indent == 2 and current_section == "history" and stripped.startswith("- "):
+            rest = stripped[2:]
+            if not isinstance(data[current_section], list):
+                data[current_section] = []
+            item = {}
+            if ":" in rest:
+                k, v = rest.split(":", 1)
+                item[k.strip()] = _unquote_yaml_scalar(v)
+            data[current_section].append(item)
+            sub_section = "_hist_item"
+        elif indent == 4 and current_section == "history" and ":" in stripped:
+            k, v = stripped.split(":", 1)
+            hist = data[current_section]
+            if isinstance(hist, list) and hist:
+                hist[-1][k.strip()] = _unquote_yaml_scalar(v)
         elif indent == 2 and current_section and ":" in stripped:
             k, v = stripped.split(":", 1)
             k, v = k.strip(), _unquote_yaml_scalar(v)
@@ -133,6 +148,11 @@ def evaluate_gate(runbook_path: str, data: dict = None, curr_state: str = None):
     sprint_status = str((ck.get("sprint") or {}).get("status") or "").lower()
     if sprint_status == "fail":
         failures.append("checkpoint sprint status is fail — heal the sprint before advancing")
+    if sprint_status == "yield":
+        failures.append(
+            "checkpoint sprint status is yield — phase is not complete; "
+            "dispatch checkpoint.next_action, do not --advance"
+        )
 
     blob = " ".join(gate_items).lower()
     if any(k in blob for k in ("work/", "extracted", "thin binary")):
@@ -147,13 +167,27 @@ def evaluate_gate(runbook_path: str, data: dict = None, curr_state: str = None):
         if not has_vfs and not confirmed_vfs:
             failures.append("gate requires viking:// artifacts but checkpoint has none")
 
+    confirmed_blob = json.dumps(ck.get("confirmed") or [], ensure_ascii=False).lower()
+
     verify_phase = curr_state == "verify_and_deliver" or any(
         k in blob for k in ("human confirmed", "ask-ui", "activated")
     )
     if verify_phase:
-        confirmed_blob = json.dumps(ck.get("confirmed") or [], ensure_ascii=False).lower()
         if "human ui gate pass" not in confirmed_blob and "ask_ui: pass" not in confirmed_blob:
             failures.append("verify gate requires a Human UI gate PASS in checkpoint.confirmed")
+
+    patch_phase = curr_state == "craft_patch" or any(
+        k in blob for k in ("codesign", "patched binary", "re-sign", "resign")
+    )
+    if patch_phase:
+        has_patch = any(
+            k in confirmed_blob
+            for k in ("codesign", "re-sign", "resign", "patched binary", "ad-hoc", "adhoc")
+        )
+        if not has_patch:
+            failures.append(
+                "craft_patch gate requires codesign / patched-binary evidence in checkpoint.confirmed"
+            )
 
     n = working_set.evidence_count(ck)
     last = int((ck.get("gate") or {}).get("last_evidence_count") or 0)
@@ -415,6 +449,40 @@ def advance_state(runbook_path: str, next_state_override=None, check_gate=True, 
         print("=" * 70 + "\n")
 
 
+def rollback_state(runbook_path: str):
+    """Undo the last transition. Use after a false-positive gate advance."""
+    data = load_runbook(runbook_path)
+    raw_hist = data.get("history")
+    hist = [h for h in raw_hist if isinstance(h, dict)] if isinstance(raw_hist, list) else []
+    if not hist:
+        print("[ERROR] No history to roll back.")
+        sys.exit(1)
+    last = hist[-1] if isinstance(hist[-1], dict) else {}
+    prev = last.get("from_state")
+    if not prev:
+        print("[ERROR] Last history entry has no from_state.")
+        sys.exit(1)
+    curr = get_current_state(data)
+    data["history"] = hist[:-1]
+    data["current_state"] = prev
+    save_runbook(runbook_path, data)
+    ck = working_set.load_checkpoint()
+    ck["phase"] = prev
+    prev_n = last.get("evidence_count")
+    if prev_n is None:
+        prev_n = working_set.evidence_count(ck)
+    # Keep last_evidence_count at the rolled-back transition's count so
+    # the next --advance still requires *new* facts (e.g. a real patch).
+    ck.setdefault("gate", {})
+    ck["gate"]["last_from"] = (hist[-2].get("from_state") if len(hist) > 1 and isinstance(hist[-2], dict) else "")
+    ck["gate"]["last_to"] = prev
+    ck["gate"]["last_evidence_count"] = int(prev_n)
+    working_set.save_checkpoint(ck)
+    print(f"\n↩️  [StateM] Rolled back: \033[1;31m{curr}\033[0m  ➡️   \033[1;32m{prev}\033[0m")
+    print("   Next: dispatch checkpoint.next_action; do not --force.\n")
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(description="StateM YAML Runbook Driver")
     parser.add_argument("--runbook", default="runbook.yaml", help="Path to runbook.yaml")
@@ -427,10 +495,17 @@ def main():
     )
     parser.add_argument("--force", action="store_true", help="Skip gate check when advancing")
     parser.add_argument("--to", help="Manually specify target state to transition to")
+    parser.add_argument(
+        "--rollback",
+        action="store_true",
+        help="Undo the last transition (false-positive gate)",
+    )
 
     args = parser.parse_args()
 
-    if args.advance or args.to:
+    if args.rollback:
+        rollback_state(args.runbook)
+    elif args.advance or args.to:
         advance_state(
             args.runbook,
             args.to,
