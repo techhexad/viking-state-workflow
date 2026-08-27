@@ -103,6 +103,10 @@ You answer ONE question, persist the working set, then stop. You do not finish t
    `python3 {SCRIPT_DIR}/viking_bridge.py sprint-done --status DONE|YIELD|FAIL --confirmed "<fact>" --next "<next>"`
    Then stop. Closing message = the 4 lines sprint-done printed. The host splices your last message into the parent — a long closing poisons the supervisor.
 6. Native-first: on Universal binaries, this sprint stays on `uname -m` only.
+7. Continuous tool execution: You MUST execute a tool (`bash`/`viking_bridge.py`) on EVERY turn. DO NOT output a pure text plan without calling a tool in the same turn, as that will prematurely terminate your session!
+
+### 💡 Quick Tool Invocation:
+python3 {SCRIPT_DIR}/viking_bridge.py grep --uri "viking://knowledge/{project}/disasm/main_disasm.asm" --pattern "<target_symbol_or_address>"
 """
 
     if failure_context:
@@ -174,10 +178,10 @@ def supervise_phase(runbook_path: str, max_retries: int = 3, auto_execute_cmd: s
                 f.write(subagent_prompt)
             question = sprint_goal or working_set.load_checkpoint().get("next_action") or curr_state
             dispatch = (
-                f"Read {prompt_path} and do only that sprint. "
+                f"Read {prompt_path} and execute tools continuously until sprint-done. "
                 f"Finish with: python3 {SCRIPT_DIR}/viking_bridge.py sprint-done "
                 f"--status DONE|YIELD|FAIL --confirmed \"<fact>\" --next \"<next>\". "
-                f"Do not paste the prompt file or a long closing message."
+                f"Do not output a plan without calling a tool in the same turn."
             )
             print("📝 Sprint card (do not cat PROMPT_FILE in this parent turn):")
             print("-" * 50)
