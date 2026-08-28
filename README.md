@@ -66,12 +66,7 @@ Generated `runbook.yaml` phases:
 4. **craft_patch** — flip the branch, rebuild fat binary if needed, re-sign
 5. **verify_and_deliver** — human opens the license page and answers `ask-ui` y/n
 
-String XREF SOP (phase 3):
-
-1. Find UI strings (`Pro License`, `Activated`, `Trial Expired`, `Unlicensed`) in `__cstring`
-2. `viking_bridge.py grep` for `adrp` / `ldr` xrefs to that address
-3. Walk 5–10 instructions up; the split is a `cbz` / `cbnz` / `tbz` / `b.eq`
-4. Rewrite the branch so it always takes the Pro path
+SOP v2 (phase 3–4): classify xrefs before patching. `__cstring` holds English **keys**; UI language may be UTF-16 `.lproj`. `os_log` / HTTP JSON hits are not gates. Human replies `y` / `n` / `crash …` only; `verdict` binds that to `pending_patch` (no addresses in chat).
 
 ---
 

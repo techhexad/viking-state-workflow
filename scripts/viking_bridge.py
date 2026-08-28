@@ -474,12 +474,36 @@ def print_vfs_preview(uri: str, max_lines=MAX_GET_PRINT_LINES):
     return 0
 
 
-def sprint_done(status: str, confirmed=None, rejected=None, next_action=None):
+def sprint_done(status: str, confirmed=None, rejected=None, next_action=None,
+                patch_va: str = "", app: str = "", patch_fileoff: str = "",
+                patch_before: str = "", patch_after: str = "",
+                patch_kind: str = "", patch_hypothesis: str = ""):
     """Persist the working set and print exactly four handover lines."""
     status = (status or "").strip().upper()
     if status not in ("DONE", "YIELD", "FAIL"):
         print("[ERROR] sprint-done --status must be DONE, YIELD, or FAIL")
         return 2
+    if patch_va:
+        try:
+            working_set.set_pending_patch(
+                va=patch_va,
+                app_path=app,
+                fileoff=patch_fileoff,
+                before=patch_before,
+                after=patch_after,
+                kind=patch_kind,
+                hypothesis=patch_hypothesis,
+            )
+        except ValueError as exc:
+            print(f"[ERROR] {exc}")
+            return 2
+        next_action = working_set.ASK_HUMAN_NEXT
+    elif next_action:
+        ck = working_set.load_checkpoint()
+        if working_set.looks_like_ask_ui(next_action) and ck.get("killed") and not (
+            isinstance(ck.get("pending_patch"), dict) and ck["pending_patch"].get("status") == "awaiting_human"
+        ):
+            next_action = working_set.NEXT_AFTER_N
     data = working_set.merge_checkpoint(
         confirmed=confirmed or [],
         rejected=rejected or [],
@@ -498,10 +522,138 @@ def sprint_done(status: str, confirmed=None, rejected=None, next_action=None):
     print(f"CONFIRMED: {last_c}")
     print(f"REJECTED: {last_r}")
     print(f"NEXT: {data.get('next_action') or ''}")
+    pending = data.get("pending_patch") if isinstance(data.get("pending_patch"), dict) else None
+    if pending and pending.get("status") == "awaiting_human":
+        print(f"PENDING_PATCH: {pending.get('va')} {pending.get('app_path')}")
     if status == "YIELD":
         return 20
     if status == "FAIL":
         return 1
+    return 0
+
+
+def list_running_apps(app_name: str):
+    """Return [(pid, app_realpath), ...] for processes whose .app basename matches."""
+    found = []
+    if not app_name:
+        return found
+    try:
+        ps = subprocess.run(["ps", "-eo", "pid,command"], capture_output=True, text=True)
+    except Exception:
+        return found
+    for line in ps.stdout.splitlines():
+        parts = line.strip().split(None, 1)
+        if len(parts) != 2 or not parts[0].isdigit():
+            continue
+        pid, cmd = parts[0], parts[1]
+        if "viking_bridge" in cmd:
+            continue
+        match = re.search(r"((?:\/|\A)[^\s]*\.app)", cmd)
+        if not match:
+            continue
+        other_app = os.path.realpath(match.group(1))
+        other_name = os.path.basename(other_app).replace(".app", "")
+        if other_name.lower() == app_name.lower():
+            found.append((pid, other_app))
+    return found
+
+
+def print_open_recipe(app_path: str):
+    app_name = os.path.basename(app_path).replace(".app", "") if app_path else "App"
+    print()
+    print("请先退出所有该 App 窗口，然后整段复制到终端执行：")
+    print()
+    print(f'killall -9 {app_name} 2>/dev/null; open "{app_path}"')
+    print()
+    print("只用这次弹出来的窗口看专业页，不要再点 Dock / Spotlight。")
+    print("看完只回下面之一：")
+    print("  y              专业页已激活")
+    print("  n              能用，但仍是未激活")
+    print("  crash open     一打开就闪退")
+    print("  crash 设置     能进，点某按钮才崩（把「设置」换成你点的那个）")
+    print("  wrong app      没有弹出这次 open 的窗口")
+    print()
+
+
+def prepare_ui() -> int:
+    """Kill foreign copies and print a copy-paste open command for the pending app."""
+    data = working_set.load_checkpoint()
+    pending = data.get("pending_patch") if isinstance(data.get("pending_patch"), dict) else None
+    if not pending or not pending.get("app_path"):
+        print("[ERROR] no pending_patch.app_path — child must sprint-done with --patch-va and --app")
+        return 2
+    app_path = pending["app_path"]
+    if not os.path.isdir(app_path) and not os.path.exists(app_path):
+        print(f"[ERROR] pending app not on disk: {app_path}")
+        return 1
+    app_name = os.path.basename(app_path).replace(".app", "")
+    clean_foreign_processes(app_name, app_path)
+    print("DO_NOT_DISPATCH: pending_patch is awaiting_human")
+    print("PARENT_ACTION: ASK_HUMAN")
+    print(f"APP: {app_path}")
+    print(f"PENDING_VA: {pending.get('va')}")
+    print_open_recipe(app_path)
+    print(f"After they reply, run: python3 {os.path.join(SCRIPT_DIR, 'viking_bridge.py')} "
+          f"verdict --human \"<token>\"")
+    return 0
+
+
+def fingerprint_pending(pending: dict, kind: str) -> tuple:
+    """Return (ok, reason, running_path). ok False → refuse verdict."""
+    app_path = os.path.realpath(pending.get("app_path") or "")
+    app_name = os.path.basename(app_path).replace(".app", "")
+    expected = pending.get("exe_sha256") or ""
+    running = list_running_apps(app_name)
+    foreign = [(pid, p) for pid, p in running if p != app_path]
+    matching = [(pid, p) for pid, p in running if p == app_path]
+    if foreign and not matching:
+        return False, f"running app is not the patched bundle: {foreign[0][1]}", foreign[0][1]
+    if matching:
+        exe = working_set.app_macos_executable(matching[0][1])
+        if expected and exe and os.path.isfile(exe):
+            got = working_set.sha256_file(exe)
+            if got != expected:
+                return False, "running executable hash != pending exe_sha256", matching[0][1]
+        return True, "match", matching[0][1]
+    if kind in ("n", "y") and foreign:
+        return False, f"foreign app still running: {foreign[0][1]}", foreign[0][1]
+    if kind in ("n", "y") and not running:
+        # Human likely quit after looking. Trust on-disk hash of pending app.
+        exe = working_set.app_macos_executable(app_path)
+        if expected and exe and os.path.isfile(exe) and working_set.sha256_file(exe) != expected:
+            return False, "on-disk app hash no longer matches pending exe_sha256", app_path
+        return True, "not-running-ok", app_path
+    if kind == "crash":
+        if foreign and not matching:
+            return False, f"crash from foreign bundle: {foreign[0][1]}", foreign[0][1]
+        return True, "crash-ok", app_path
+    return True, "ok", app_path
+
+
+def apply_human_verdict(raw: str) -> int:
+    kind, where = working_set.parse_human_token(raw)
+    if kind == "unknown":
+        print("[ERROR] reply must be y / n / crash open / crash <button> / wrong app")
+        return 2
+    if kind == "wrong-app":
+        print("VERDICT_REFUSED: human reported wrong app")
+        return prepare_ui() or 3
+    data = working_set.load_checkpoint()
+    pending = data.get("pending_patch") if isinstance(data.get("pending_patch"), dict) else None
+    if not pending or not pending.get("va"):
+        print("[ERROR] no pending_patch — nothing to bind this verdict to")
+        return 2
+    ok, reason, path = fingerprint_pending(pending, kind)
+    if not ok:
+        print(f"VERDICT_REFUSED: {reason}")
+        return prepare_ui() or 3
+    try:
+        working_set.apply_verdict(kind, where)
+    except ValueError as exc:
+        print(f"[ERROR] {exc}")
+        return 2
+    print(f"VERDICT_OK: {kind} {where}".strip())
+    print(working_set.checkpoint_prompt_slice())
     return 0
 
 
@@ -773,6 +925,17 @@ def main():
     done_parser.add_argument("--confirmed", action="append", default=[], help="Confirmed fact (repeatable)")
     done_parser.add_argument("--rejected", action="append", default=[], help="Rejected path (repeatable)")
     done_parser.add_argument("--next", dest="next_action", help="Next micro-sprint action")
+    done_parser.add_argument("--patch-va", default="", help="VA of the byte patch awaiting human UI")
+    done_parser.add_argument("--app", default="", help=".app path that the human must open")
+    done_parser.add_argument("--patch-fileoff", default="", help="File offset of the patch")
+    done_parser.add_argument("--patch-before", default="", help="Original instruction hex")
+    done_parser.add_argument("--patch-after", default="", help="Patched instruction hex")
+    done_parser.add_argument("--patch-kind", default="", help="e.g. b.ne-nop")
+    done_parser.add_argument("--patch-hypothesis", default="", help="Why this patch should unlock Pro")
+
+    prep = subparsers.add_parser("prepare-ui", help="Kill foreign apps and print copy-paste open command")
+    verd = subparsers.add_parser("verdict", help="Bind human y/n/crash/wrong-app to pending_patch")
+    verd.add_argument("--human", required=True, help="y | n | crash open | crash <button> | wrong app")
 
     args = parser.parse_args()
 
@@ -845,7 +1008,18 @@ def main():
             confirmed=args.confirmed,
             rejected=args.rejected,
             next_action=args.next_action,
+            patch_va=getattr(args, "patch_va", "") or "",
+            app=getattr(args, "app", "") or "",
+            patch_fileoff=getattr(args, "patch_fileoff", "") or "",
+            patch_before=getattr(args, "patch_before", "") or "",
+            patch_after=getattr(args, "patch_after", "") or "",
+            patch_kind=getattr(args, "patch_kind", "") or "",
+            patch_hypothesis=getattr(args, "patch_hypothesis", "") or "",
         ) or 0)
+    elif args.subcommand == "prepare-ui":
+        sys.exit(prepare_ui())
+    elif args.subcommand == "verdict":
+        sys.exit(apply_human_verdict(args.human))
     elif args.subcommand == "sprint-reset":
         working_set.reset_sprint_budget()
         print("[SPRINT] exploration budget reset to 0/8")

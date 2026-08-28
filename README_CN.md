@@ -68,12 +68,7 @@ DSH 侧（不在本仓库）：`streamIdleTimeoutMs` 用分钟级而不是 30 �
 4. **craft_patch** — 改跳转，必要时合成胖二进制，重签
 5. **verify_and_deliver** — 人自己点进授权页，用 `ask-ui` 答 y/n
 
-第三阶段秒杀 SOP（字符串 XREF）：
-
-1. 在 `__cstring` 里定位 UI 字符串（`Pro License`、`Activated`、`Trial Expired`、`Unlicensed`）
-2. `viking_bridge.py grep` 搜对该地址的 `adrp` / `ldr` 交叉引用
-3. 往上倒 5～10 条指令，分流一般是 `cbz` / `cbnz` / `tbz` / `b.eq`
-4. 改写跳转，强制走 Pro 分支
+SOP v2（阶段 3–4）：先给 XREF 分类再动手。`__cstring` 里是英文 **key**，界面语言可能在 UTF-16 `.lproj`。`os_log` / HTTP JSON 不是闸门。人只回 `y` / `n` / `crash …`；`verdict` 绑到 `pending_patch`，聊天里不报地址。
 
 ---
 

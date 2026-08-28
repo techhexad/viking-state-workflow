@@ -11,6 +11,7 @@ Exploration budget lives in .viking_state/sprint_budget and is reset
 per sprint (statem_supervisor.py resets it when synthesizing a prompt).
 """
 
+import hashlib
 import json
 import os
 import re
@@ -37,11 +38,29 @@ EMPTY_CHECKPOINT = {
     "updated_at": "",
     "confirmed": [],
     "rejected": [],
+    "killed": [],
+    "pending_patch": None,
     "next_action": "",
     "artifacts": [],
     "sprint": {"status": "", "reason": ""},
     "gate": {"last_evidence_count": 0, "last_from": "", "last_to": ""},
 }
+
+NEXT_AFTER_N = (
+    "The last patch was falsified by human UI. Work from remaining non-killed "
+    "license-key xrefs; find the flag reader/writer. Never patch a VA in killed[]. "
+    "Do not ask the human about the license page this sprint."
+)
+NEXT_AFTER_CRASH = (
+    "The patched app crashed. Diagnose the last patch (illegal insn vs SwiftUI trap). "
+    "Do not treat crash as 'not a Pro gate'. Do not re-ask the license page until the app stays up."
+)
+NEXT_AFTER_Y = "Human UI PASS: Pro/license page activated. Run --advance --gate-check if the phase gate is met."
+ASK_HUMAN_NEXT = "Human UI: is the Pro/license page activated? Reply y / n / crash open / crash <button> / wrong app"
+ASK_UI_HINT = re.compile(
+    r"(license.?page|ask.?ui|relay|y/n|专业页|是否.*激活|ask the (user|human)|awaiting_human)",
+    re.IGNORECASE,
+)
 
 
 def set_project_root(path: str):
@@ -127,6 +146,10 @@ def load_checkpoint() -> dict:
             merged["rejected"] = []
         if not isinstance(merged.get("artifacts"), list):
             merged["artifacts"] = []
+        if not isinstance(merged.get("killed"), list):
+            merged["killed"] = []
+        pp = data.get("pending_patch", merged.get("pending_patch"))
+        merged["pending_patch"] = pp if isinstance(pp, dict) and pp.get("va") else None
         if not isinstance(merged.get("sprint"), dict):
             merged["sprint"] = {"status": "", "reason": ""}
         if not isinstance(merged.get("gate"), dict):
@@ -272,6 +295,205 @@ def merge_checkpoint(confirmed=None, rejected=None, next_action=None, artifacts=
     return data
 
 
+def norm_va(va: str) -> str:
+    text = (va or "").strip().lower()
+    if not text:
+        return ""
+    if not text.startswith("0x"):
+        text = "0x" + text
+    return text
+
+
+def is_killed_va(va: str, data: dict = None) -> bool:
+    va = norm_va(va)
+    if not va:
+        return False
+    data = data if data is not None else load_checkpoint()
+    for item in data.get("killed") or []:
+        if isinstance(item, dict) and norm_va(item.get("va", "")) == va:
+            return True
+    return False
+
+
+def looks_like_ask_ui(text: str) -> bool:
+    return bool(ASK_UI_HINT.search(text or ""))
+
+
+def app_macos_executable(app_path: str) -> str:
+    if not app_path:
+        return ""
+    path = os.path.expanduser(app_path)
+    if not os.path.isabs(path):
+        path = os.path.join(project_root(), path)
+    path = os.path.realpath(path)
+    macos = os.path.join(path, "Contents", "MacOS")
+    if os.path.isdir(macos):
+        name = os.path.basename(path).replace(".app", "")
+        cand = os.path.join(macos, name)
+        if os.path.isfile(cand):
+            return cand
+        files = [
+            os.path.join(macos, f)
+            for f in os.listdir(macos)
+            if os.path.isfile(os.path.join(macos, f)) and not f.startswith(".")
+        ]
+        return files[0] if files else ""
+    return path if os.path.isfile(path) else ""
+
+
+def sha256_file(path: str) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def resolve_app_path(app_path: str) -> str:
+    if not app_path:
+        return ""
+    path = os.path.expanduser(app_path)
+    if not os.path.isabs(path):
+        path = os.path.join(project_root(), path)
+    return os.path.realpath(path)
+
+
+def set_pending_patch(va: str, app_path: str, fileoff: str = "", before: str = "",
+                      after: str = "", kind: str = "", hypothesis: str = "") -> dict:
+    va = norm_va(va)
+    app_path = resolve_app_path(app_path)
+    if not va or not app_path:
+        raise ValueError("pending patch requires --patch-va and --app")
+    if is_killed_va(va):
+        raise ValueError(f"VA {va} is in killed[]; will not set pending_patch")
+    exe = app_macos_executable(app_path)
+    sha = sha256_file(exe) if exe and os.path.isfile(exe) else ""
+    data = load_checkpoint()
+    data["pending_patch"] = {
+        "va": va,
+        "fileoff": (fileoff or "").strip().lower(),
+        "bytes_before": (before or "").strip().lower(),
+        "bytes_after": (after or "").strip().lower(),
+        "kind": (kind or "").strip(),
+        "hypothesis": _clip(hypothesis or "", MAX_FACT_LEN),
+        "app_path": app_path,
+        "exe_sha256": sha,
+        "status": "awaiting_human",
+        "crash_where": "",
+    }
+    data["next_action"] = ASK_HUMAN_NEXT
+    data["sprint"]["status"] = "awaiting_human"
+    data["sprint"]["reason"] = f"pending patch {va}"
+    save_checkpoint(data)
+    append_discovery("pending", f"pending_patch va={va} app={app_path}", source="sprint-done")
+    return data
+
+
+def parse_human_token(raw: str) -> tuple:
+    """Return (kind, where) kind in y, n, crash, wrong-app, unknown."""
+    text = (raw or "").strip()
+    low = text.lower()
+    if low in ("y", "yes", "true", "1", "pass", "ok", "pro", "activated"):
+        return "y", ""
+    if low in ("n", "no", "false", "0", "fail"):
+        return "n", ""
+    if low in ("wrong app", "wrong-app", "wrong_app"):
+        return "wrong-app", ""
+    if low.startswith("crash"):
+        where = text[5:].strip(" :-/\t")
+        if not where or where.lower() in ("open", "launch", "start"):
+            return "crash", "open"
+        return "crash", where
+    return "unknown", text
+
+
+def apply_verdict(kind: str, where: str = "") -> dict:
+    """Bind a human UI token to pending_patch. Caller must fingerprint first."""
+    data = load_checkpoint()
+    pending = data.get("pending_patch") if isinstance(data.get("pending_patch"), dict) else None
+    if kind == "wrong-app":
+        raise ValueError("wrong-app")
+    if not pending or not pending.get("va"):
+        raise ValueError("no pending_patch")
+    va = pending.get("va")
+    if kind == "y":
+        data["pending_patch"] = None
+        data["sprint"]["status"] = "done"
+        data["sprint"]["reason"] = "human UI PASS"
+        data["next_action"] = NEXT_AFTER_Y
+        fact = f"Human UI PASS for patch {va}"
+        if not _has_fact(data["confirmed"], fact):
+            data["confirmed"].append({"fact": fact})
+        append_discovery("confirmed", fact, source="verdict")
+        save_checkpoint(data)
+        render_handover(data)
+        return data
+    if kind == "n":
+        entry = {
+            "va": va,
+            "fileoff": pending.get("fileoff") or "",
+            "why": "human n — app ran, Pro page not activated",
+            "kind": pending.get("kind") or "patch",
+            "bytes_before": pending.get("bytes_before") or "",
+            "bytes_after": pending.get("bytes_after") or "",
+        }
+        if not is_killed_va(va, data):
+            data["killed"].append(entry)
+        try_text = f"killed patch va={va}"
+        if not _has_fact(data["rejected"], try_text):
+            data["rejected"].append({"try": try_text, "why": entry["why"]})
+        data["pending_patch"] = None
+        data["sprint"]["status"] = "falsified"
+        data["sprint"]["reason"] = entry["why"]
+        data["next_action"] = NEXT_AFTER_N
+        append_discovery("killed", try_text, source="verdict")
+        save_checkpoint(data)
+        render_handover(data)
+        return data
+    if kind == "crash":
+        pending["status"] = "crashed"
+        pending["crash_where"] = where or "open"
+        data["pending_patch"] = pending
+        data["sprint"]["status"] = "crashed"
+        data["sprint"]["reason"] = f"human crash {where or 'open'}"
+        data["next_action"] = NEXT_AFTER_CRASH
+        append_discovery("crash", f"crash where={where or 'open'} va={va}", source="verdict")
+        save_checkpoint(data)
+        render_handover(data)
+        return data
+    raise ValueError(f"unsupported verdict {kind}")
+
+
+def resolve_sprint_goal(requested: str = None) -> tuple:
+    """Pick the sprint question. Returns (goal_or_empty, mode).
+
+    mode: awaiting_human | rewritten | ok
+    """
+    data = load_checkpoint()
+    pending = data.get("pending_patch") if isinstance(data.get("pending_patch"), dict) else None
+    if pending and pending.get("status") == "awaiting_human":
+        return "", "awaiting_human"
+    if pending and pending.get("status") == "crashed":
+        return NEXT_AFTER_CRASH, "rewritten"
+    goal = (requested or "").strip() or (data.get("next_action") or "").strip()
+    if looks_like_ask_ui(goal):
+        if data.get("killed"):
+            return NEXT_AFTER_N, "rewritten"
+        return (
+            "Do not ask the human until a pending_patch exists. Continue from confirmed "
+            "facts; if you byte-patch, sprint-done with --patch-va and --app.",
+            "rewritten",
+        )
+    if goal:
+        for item in data.get("killed") or []:
+            va = norm_va((item or {}).get("va", "") if isinstance(item, dict) else "")
+            if va and va in goal.lower() and re.search(r"nop|patch|b\.ne|tbnz", goal, re.I):
+                return NEXT_AFTER_N, "rewritten"
+    if not goal:
+        return NEXT_AFTER_N if data.get("killed") else "", "ok"
+    return goal, "ok"
+
+
 def recent_discoveries(limit: int = 20) -> list:
     dfile = discoveries_file()
     if not os.path.exists(dfile):
@@ -403,12 +625,39 @@ def _slim_fact(item):
 
 def checkpoint_prompt_slice(max_confirmed: int = 8) -> str:
     data = load_checkpoint()
-    if not any([data.get("confirmed"), data.get("rejected"), data.get("next_action")]):
+    if not any([
+        data.get("confirmed"),
+        data.get("rejected"),
+        data.get("killed"),
+        data.get("pending_patch"),
+        data.get("next_action"),
+    ]):
         return "(empty working set — no checkpoint.json facts yet)"
+    killed = []
+    for item in data.get("killed") or []:
+        if not isinstance(item, dict):
+            continue
+        killed.append({
+            "va": item.get("va") or "",
+            "why": _clip(str(item.get("why") or ""), 160),
+            "kind": item.get("kind") or "",
+        })
+    pending = data.get("pending_patch") if isinstance(data.get("pending_patch"), dict) else None
+    slim_pending = None
+    if pending and pending.get("va"):
+        slim_pending = {
+            "va": pending.get("va"),
+            "status": pending.get("status"),
+            "app_path": pending.get("app_path"),
+            "kind": pending.get("kind") or "",
+            "crash_where": pending.get("crash_where") or "",
+        }
     slim = {
         "phase": data.get("phase"),
         "confirmed": [_slim_fact(x) for x in (data.get("confirmed") or [])[-max_confirmed:]],
         "rejected": [_slim_fact(x) for x in (data.get("rejected") or [])[-6:]],
+        "killed": killed,
+        "pending_patch": slim_pending,
         "next_action": _clip(str(data.get("next_action") or ""), MAX_NEXT_ACTION_LEN),
         "artifacts": [
             _clip(str(u), MAX_FACT_LEN) for u in (data.get("artifacts") or [])[-4:]

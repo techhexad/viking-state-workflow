@@ -324,6 +324,136 @@ class TestSupervisor(unittest.TestCase):
         )
 
 
+class TestVerdictAndKilled(IsolatedWorkspace):
+    def _fake_app(self, name="Foo.app"):
+        root = os.path.join(self.tmp, "work", name)
+        exe = os.path.join(root, "Contents", "MacOS", name.replace(".app", ""))
+        os.makedirs(os.path.dirname(exe), exist_ok=True)
+        with open(exe, "wb") as fh:
+            fh.write(b"FAKEAPP" + b"\x00" * 64)
+        return root
+
+    def test_parse_human_tokens(self):
+        self.assertEqual(working_set.parse_human_token("y"), ("y", ""))
+        self.assertEqual(working_set.parse_human_token("n"), ("n", ""))
+        self.assertEqual(working_set.parse_human_token("crash open"), ("crash", "open"))
+        self.assertEqual(working_set.parse_human_token("crash 设置"), ("crash", "设置"))
+        self.assertEqual(working_set.parse_human_token("wrong app"), ("wrong-app", ""))
+
+    def test_n_kills_pending_va_without_human_naming_it(self):
+        app = self._fake_app()
+        working_set.set_pending_patch("0x10051ed30", app, after="d503201f")
+        working_set.apply_verdict("n")
+        data = working_set.load_checkpoint()
+        self.assertEqual(data["killed"][0]["va"], "0x10051ed30")
+        self.assertFalse(data.get("pending_patch"))
+        self.assertIn("killed[]", data["next_action"])
+        slice_txt = working_set.checkpoint_prompt_slice()
+        self.assertIn("0x10051ed30", slice_txt)
+        self.assertIn('"killed"', slice_txt)
+
+    def test_y_does_not_kill(self):
+        app = self._fake_app()
+        working_set.set_pending_patch("0x1000", app)
+        working_set.apply_verdict("y")
+        data = working_set.load_checkpoint()
+        self.assertEqual(data["killed"], [])
+        self.assertIn("PASS", data["next_action"])
+
+    def test_crash_is_not_a_falsified_gate(self):
+        app = self._fake_app()
+        working_set.set_pending_patch("0x1000", app)
+        working_set.apply_verdict("crash", "设置")
+        data = working_set.load_checkpoint()
+        self.assertEqual(data["killed"], [])
+        self.assertEqual(data["pending_patch"]["status"], "crashed")
+        self.assertEqual(data["pending_patch"]["crash_where"], "设置")
+        goal, mode = working_set.resolve_sprint_goal("continue")
+        self.assertEqual(mode, "rewritten")
+        self.assertIn("crashed", goal.lower())
+
+    def test_cannot_repending_killed_va(self):
+        app = self._fake_app()
+        working_set.set_pending_patch("0xABC", app)
+        working_set.apply_verdict("n")
+        with self.assertRaises(ValueError):
+            working_set.set_pending_patch("0xabc", app)
+
+    def test_resolve_awaiting_human_blocks_dispatch(self):
+        app = self._fake_app()
+        working_set.set_pending_patch("0x1", app)
+        goal, mode = working_set.resolve_sprint_goal("continue")
+        self.assertEqual(mode, "awaiting_human")
+        self.assertEqual(goal, "")
+
+    def test_resolve_rewrites_ask_ui_without_pending(self):
+        goal, mode = working_set.resolve_sprint_goal(
+            "relay license-page question to user (y/n whether app shows PRO)"
+        )
+        self.assertEqual(mode, "rewritten")
+        self.assertIn("pending_patch", goal)
+
+    def test_resolve_rewrites_ask_ui_after_kill(self):
+        app = self._fake_app()
+        working_set.set_pending_patch("0x1", app)
+        working_set.apply_verdict("n")
+        goal, mode = working_set.resolve_sprint_goal(
+            "relay license-page question to user (y/n whether app shows PRO)"
+        )
+        self.assertEqual(mode, "rewritten")
+        self.assertIn("killed[]", goal)
+
+    def test_sprint_done_patch_sets_pending(self):
+        app = self._fake_app()
+        code, out = self._stdout(
+            viking_bridge.sprint_done,
+            "YIELD",
+            ["patched"],
+            [],
+            "ask the user",
+            "0x10051ed30",
+            app,
+            "0x51ed30",
+            "54002281",
+            "d503201f",
+        )
+        self.assertEqual(code, 20)
+        data = working_set.load_checkpoint()
+        self.assertEqual(data["pending_patch"]["va"], "0x10051ed30")
+        self.assertEqual(data["pending_patch"]["status"], "awaiting_human")
+        self.assertIn("PENDING_PATCH:", out)
+
+    def test_prepare_ui_prints_copy_paste_open(self):
+        app = self._fake_app()
+        working_set.set_pending_patch("0x1", app)
+        code, out = self._stdout(viking_bridge.prepare_ui)
+        self.assertEqual(code, 0)
+        self.assertIn("DO_NOT_DISPATCH", out)
+        self.assertIn("killall -9", out)
+        self.assertIn(f'open "{os.path.realpath(app)}"', out)
+
+    def test_verdict_refused_on_foreign_process(self):
+        app = self._fake_app()
+        working_set.set_pending_patch("0x1", app)
+        with mock.patch.object(
+            viking_bridge,
+            "list_running_apps",
+            return_value=[("9", "/tmp/Other/Foo.app")],
+        ):
+            code, out = self._stdout(viking_bridge.apply_human_verdict, "n")
+        self.assertEqual(code, 3)
+        self.assertIn("VERDICT_REFUSED", out)
+        self.assertFalse(working_set.load_checkpoint().get("killed"))
+
+    def test_supervisor_does_not_dispatch_while_awaiting_human(self):
+        app = self._fake_app()
+        working_set.set_pending_patch("0x1", app)
+        code, out = self._stdout(statem_supervisor.supervise_phase, self.runbook)
+        self.assertEqual(code, 10)
+        self.assertIn("DO_NOT_DISPATCH", out)
+        self.assertNotIn("DISPATCH_PROMPT:", out)
+
+
 class TestPiAssets(unittest.TestCase):
     def test_init_copies_pi_host_caps(self):
         tmp = tempfile.mkdtemp(prefix="viking-pi-")

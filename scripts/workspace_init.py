@@ -38,14 +38,17 @@ TEMPLATES = {
             ("craft_patch", "Write byte patch, reconstruct fat binary and re-sign", "Patched binary passes codesign validation"),
             ("verify_and_deliver", "Human confirms Pro/Activated UI via ask-ui", "Human confirmed Pro/Activated on the license page")
         ],
-        "custom_commands": """### 1. 逆向黄金法则与字符串交叉引用秒杀 SOP (String XREF-First Protocol)
+        "custom_commands": """### 1. 逆向 SOP v2（证伪驱动，不是秒杀）
 > [!IMPORTANT]
-> 1. **主二进制第一原则**：严禁在第三方 SDK（如 Paddle/Sparkle）上单独打转；授权总闸门 100% 存在于主二进制（Main Binary）内部的 Swift 状态机与 Feature Flag！
-> 2. **秒杀 SOP（字符串 XREF 倒推）**：
->    - 步骤 1：定位 UI 状态字符串（如 `"Pro License"`, `"Activated"`, `"Unlicensed"`）在 `__cstring` 中的内存地址；
->    - 步骤 2：在主汇编中通过 `viking_bridge.py grep` 搜索对该地址的 `adrp / ldr` 交叉引用 (XREF)；
->    - 步骤 3：倒推上方 5~10 行汇编，锁定分流的关键条件跳转（`cbz`, `cbnz`, `tbz`, `b.eq`）；
->    - 步骤 4：改写该跳转指令，直接强制流向 Pro 分支！
+> 1. **主二进制第一**：不要反编译 Paddle/Sparkle 等第三方 SDK。第一轮只在主二进制找 **app 侧** flag / 回调 / store。
+> 2. **文案分层**：界面中文可能在 UTF-16 `.lproj` / `.xcstrings`。二进制里追 **英文 key**（`Pro License` / `Unlicensed` / `Trial Expired`），不要用中文 UI 字去 grep `__cstring`。
+> 3. **XREF 先分类再动手**（禁止「字符串上方 10 行第一条 `b.ne`」）：
+>    - log：`os_log` / Logger / PLT、旁路 `cmn #-1` latch → **禁止当补丁点**
+>    - wire：HTTP/JSON/拼包 → **禁止当补丁点**
+>    - ui / flag：喂给控件，或读/写 isPro、试用日期、在两个 key 之间选择 → 才允许追
+> 4. **闸门是状态，不是那句话。** 下一问是谁读/写 flag，不是再 NOP 同一跳转。
+> 5. **打补丁必须留下待验卡**：`sprint-done --patch-va 0x... --app work/<App>.app --patch-after <hex>`。人只回 y/n/crash；`killed[]` 里的 VA 禁止再打。
+> 6. **人审 n ≠ 崩溃。** 程序活着但仍未激活才是 n；闪退/点按钮崩是 crash，不当「不是闸门」。
 
 ### 2. 重型反汇编与符号查询
 ```bash
@@ -59,6 +62,9 @@ python3 {skill_dir}/viking_bridge.py grep \\
   --uri "viking://knowledge/{project}/disasm/main.asm" \\
   --pattern "<target_address_or_symbol>" \\
   --context 15
+
+# 本地化表（UTF-16）对照英文 key
+iconv -f utf-16 "work/<app_name>.app/Contents/Resources/zh-Hans.lproj/Localizable.strings" | head
 
 # 重签并注入 Debug Entitlements (防止 macOS AMFI 拦截 LLDB error 9)
 cat > /tmp/debug_entitlements.plist << 'EOF'

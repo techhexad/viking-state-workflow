@@ -11,6 +11,8 @@ Hard limits (host also enforces via `.pi/extensions/sprint-guard.ts`):
 - Never bash/grep/cat/sed/awk `main_disasm.asm`. Use `viking_bridge.py grep --uri ... --context 8`.
 - No raw hex dumps (`xxd`, `hexdump`, `od`, `memory read`).
 - Keep bash output tiny: counts, 8-line slices, `head`. Write helper Python to a file — no long heredocs.
+- Do not patch a VA in `killed[]`. os_log / HTTP JSON xrefs are not gates.
+- If you byte-patch: `sprint-done` MUST include `--patch-va` and `--app`. Do not `ask-ui` / `verdict` (parent does that).
 
 When finished, output only:
 

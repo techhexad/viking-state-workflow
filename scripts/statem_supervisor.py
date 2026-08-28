@@ -74,8 +74,7 @@ def generate_subagent_prompt(project: str, state_name: str, state_meta: dict,
     gate = state_meta.get("gate", state_meta.get("gates", ""))
     working_set.reset_sprint_budget()
     checkpoint_slice = working_set.checkpoint_prompt_slice()
-    ck = working_set.load_checkpoint()
-    question = sprint_goal or ck.get("next_action") or (
+    question = sprint_goal or (
         f"Do ONLY the next smallest slice of: {desc}"
     )
 
@@ -92,20 +91,23 @@ You answer ONE question, persist the working set, then stop. You do not finish t
 {gate}
 
 ## Rules:
-1. First tool call MUST be the sprint work: `viking_bridge.py grep` or `run` or `ask-ui`.
+1. First tool call MUST be the sprint work: `viking_bridge.py grep` or `run`.
    Forbidden: `skill`, `doctor`, `--help`, reading `viking_bridge.py` / README / SKILL, writing python/awk/scan scripts.
+   Do not call `ask-ui` / `prepare-ui` / `verdict` — the parent does human UI.
 2. Every step must include a tool call until `sprint-done`. Never end a turn with a plan-only message.
    Keep thinking under 8 lines. Do not invent multi-pass scanners; one `grep --pattern` is enough.
-3. Exploration budget: at most 8 `run`/`grep`/`ocr`. `note`/`checkpoint`/`ask-ui`/`sprint-done` do not count.
-   Calls 6–7 drain. Call 8 yields (exit 20). `ask-ui` once; never loop `capture-ocr`.
+3. Exploration budget: at most 8 `run`/`grep`/`ocr`. `note`/`checkpoint`/`sprint-done` do not count.
+   Calls 6–7 drain. Call 8 yields (exit 20).
 4. Copy these:
    `python3 {SCRIPT_DIR}/viking_bridge.py grep --uri "viking://knowledge/{project}/disasm/cstrings.txt" --pattern "<regex>" --context 10`
    `python3 {SCRIPT_DIR}/viking_bridge.py run --dest "viking://knowledge/{project}/disasm/out.log" --cmd "<command>"`
+   `iconv -f utf-16 "<app>/Contents/Resources/*.lproj/Localizable.strings"`
    `python3 {SCRIPT_DIR}/viking_bridge.py note --confirmed "<fact>" --next "<next>"`
-   `python3 {SCRIPT_DIR}/viking_bridge.py sprint-done --status DONE|YIELD|FAIL --confirmed "<fact>" --next "<next>"`
+   `python3 {SCRIPT_DIR}/viking_bridge.py sprint-done --status DONE|YIELD|FAIL --confirmed "<fact>" --next "<next>" --patch-va 0x... --app work/<App>.app --patch-after <hex>`
    Never grep/cat/head `work/disasm`, `~/.openviking/local_vfs`, or `.viking_vfs`.
 5. Closing message = only the 4 lines `sprint-done` printed. A long closing poisons the parent.
 6. Native-first: this sprint stays on `uname -m` only.
+7. Swift/SwiftUI: UI text may be UTF-16 in .lproj (English key in cstrings). Classify each xref: os_log/Logger/PLT/HTTP JSON → do not patch. Gate is a flag/date/key-select, not the first b.ne above a string. Do not reverse third-party SDKs; only app-side store/callback. Never patch a VA in killed[]. If you byte-patch, sprint-done MUST pass --patch-va and --app.
 """
 
     if failure_context:
@@ -141,16 +143,27 @@ def supervise_phase(runbook_path: str, max_retries: int = 3, auto_execute_cmd: s
     curr_state = statem_driver.get_current_state(data)
     states = data.get("states", {})
     state_meta = states.get(curr_state, {})
+    goal, mode = working_set.resolve_sprint_goal(sprint_goal)
+    sprint_goal = goal or sprint_goal
 
     print("\n" + "=" * 65)
     print(f"🎯  [StateM Supervisor] Managing Phase: \033[1;34m{curr_state}\033[0m")
     print(f"📋  Objective: {state_meta.get('description', '')}")
-    print(f"🧩  Sprint goal: {sprint_goal or working_set.load_checkpoint().get('next_action') or '(next smallest slice)'}")
+    print(f"🧩  Sprint goal: {sprint_goal or '(next smallest slice)'}")
     print("=" * 65)
 
     if curr_state == "completed":
         print("🎉 Task is already marked as completed!")
         return 0
+
+    if mode == "awaiting_human":
+        print("DO_NOT_DISPATCH: pending_patch is awaiting_human")
+        print("PARENT_ACTION: ASK_HUMAN — do not call subagent this turn.")
+        import viking_bridge
+        viking_bridge.prepare_ui()
+        return 10
+    if mode == "rewritten":
+        print(f"GOAL_REWRITTEN: {sprint_goal}")
 
     retry_count = 0
     failure_history = []
@@ -175,13 +188,14 @@ def supervise_phase(runbook_path: str, max_retries: int = 3, auto_execute_cmd: s
             working_set.ensure_state_dir()
             with open(prompt_path, "w", encoding="utf-8") as f:
                 f.write(subagent_prompt)
-            question = sprint_goal or working_set.load_checkpoint().get("next_action") or curr_state
+            question = sprint_goal or curr_state
             dispatch = (
                 f"Read {prompt_path} and do only that sprint. "
-                f"First tool call must be viking_bridge grep/run/ask-ui, not skill/help/doctor/python. "
+                f"First tool call must be viking_bridge grep/run, not skill/help/doctor/python/ask-ui. "
                 f"Every step must include a tool call until sprint-done. "
                 f"Finish with: python3 {SCRIPT_DIR}/viking_bridge.py sprint-done "
-                f"--status DONE|YIELD|FAIL --confirmed \"<fact>\" --next \"<next>\". "
+                f"--status DONE|YIELD|FAIL --confirmed \"<fact>\" --next \"<next>\" "
+                f"(if you patched: also --patch-va 0x... --app work/<App>.app --patch-after <hex>). "
                 f"Closing message = those 4 lines only."
             )
             print("📝 Sprint card (do not cat PROMPT_FILE in this parent turn):")
